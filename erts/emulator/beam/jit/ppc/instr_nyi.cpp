@@ -42,13 +42,6 @@ void BeamGlobalAssembler::emit_nyi(const char *msg) {
     /* Never returns */
 }
 
-enum erts_is_line_breakpoint BeamGlobalAssembler::is_line_breakpoint_trampoline(
-        ErtsCodePtr addr) {
-    (void)addr;
-
-    return IS_NOT_LINE_BP;
-}
-
 /*
  * Shared fragments.
  */
@@ -121,10 +114,6 @@ void BeamGlobalAssembler::emit_construct_utf8_shared() {
     emit_nyi("construct_utf8_shared");
 }
 
-void BeamGlobalAssembler::emit_debug_bp() {
-    emit_nyi("debug_bp");
-}
-
 void BeamGlobalAssembler::emit_fconv_shared() {
     emit_nyi("fconv_shared");
 }
@@ -173,14 +162,6 @@ void BeamGlobalAssembler::emit_handle_tl_error() {
     emit_nyi("handle_tl_error");
 }
 
-void BeamGlobalAssembler::emit_generic_bp_global() {
-    emit_nyi("generic_bp_global");
-}
-
-void BeamGlobalAssembler::emit_generic_bp_local() {
-    emit_nyi("generic_bp_local");
-}
-
 void BeamGlobalAssembler::emit_i_band_body_shared() {
     emit_nyi("i_band_body_shared");
 }
@@ -197,10 +178,6 @@ void BeamGlobalAssembler::emit_i_bor_body_shared() {
     emit_nyi("i_bor_body_shared");
 }
 
-void BeamGlobalAssembler::emit_i_breakpoint_trampoline_shared() {
-    emit_nyi("i_breakpoint_trampoline_shared");
-}
-
 void BeamGlobalAssembler::emit_i_bsr_body_shared() {
     emit_nyi("i_bsr_body_shared");
 }
@@ -211,13 +188,6 @@ void BeamGlobalAssembler::emit_i_bsl_body_shared() {
 
 void BeamGlobalAssembler::emit_i_func_info_shared() {
     emit_nyi("i_func_info_shared");
-}
-
-void BeamGlobalAssembler::emit_i_line_breakpoint_trampoline_shared() {
-    emit_nyi("i_line_breakpoint_trampoline_shared");
-
-    a.bind(labels[i_line_breakpoint_cleanup]);
-    emit_nyi("i_line_breakpoint_cleanup");
 }
 
 void BeamGlobalAssembler::emit_i_bxor_body_shared() {
@@ -607,10 +577,6 @@ void BeamModuleAssembler::emit_i_bxor(const ArgLabel &,
     emit_nyi("i_bxor");
 }
 
-void BeamModuleAssembler::emit_i_call_trace_return() {
-    emit_nyi("i_call_trace_return");
-}
-
 void BeamModuleAssembler::emit_i_create_local_native_record(
         const ArgLiteral &,
         const ArgRegister &,
@@ -675,20 +641,12 @@ void BeamModuleAssembler::emit_i_get_record_elements(
     emit_nyi("i_get_record_elements");
 }
 
-void BeamModuleAssembler::emit_i_hibernate() {
-    emit_nyi("i_hibernate");
-}
-
 void BeamModuleAssembler::emit_i_int_div(const ArgLabel &,
                                          const ArgWord &,
                                          const ArgSource &,
                                          const ArgSource &,
                                          const ArgRegister &) {
     emit_nyi("i_int_div");
-}
-
-void BeamModuleAssembler::emit_i_line_breakpoint_trampoline() {
-    emit_nyi("i_line_breakpoint_trampoline");
 }
 
 void BeamModuleAssembler::emit_i_m_div(const ArgLabel &,
@@ -739,10 +697,6 @@ void BeamModuleAssembler::emit_i_rem_div(const ArgLabel &,
                                          const ArgRegister &,
                                          const ArgRegister &) {
     emit_nyi("i_rem_div");
-}
-
-void BeamModuleAssembler::emit_i_return_to_trace() {
-    emit_nyi("i_return_to_trace");
 }
 
 void BeamModuleAssembler::emit_i_unary_minus(const ArgLabel &,
@@ -838,10 +792,6 @@ void BeamModuleAssembler::emit_is_record_accessible(const ArgLabel &,
                                                     const ArgRegister &,
                                                     const ArgAtom &) {
     emit_nyi("is_record_accessible");
-}
-
-void BeamModuleAssembler::emit_return_trace() {
-    emit_nyi("return_trace");
 }
 
 void BeamModuleAssembler::emit_set_tuple_element(const ArgSource &,
