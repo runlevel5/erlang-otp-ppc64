@@ -154,36 +154,8 @@ void BeamGlobalAssembler::emit_handle_tl_error() {
     emit_nyi("handle_tl_error");
 }
 
-void BeamGlobalAssembler::emit_i_band_body_shared() {
-    emit_nyi("i_band_body_shared");
-}
-
-void BeamGlobalAssembler::emit_i_bnot_body_shared() {
-    emit_nyi("i_bnot_body_shared");
-}
-
-void BeamGlobalAssembler::emit_i_bnot_guard_shared() {
-    emit_nyi("i_bnot_guard_shared");
-}
-
-void BeamGlobalAssembler::emit_i_bor_body_shared() {
-    emit_nyi("i_bor_body_shared");
-}
-
-void BeamGlobalAssembler::emit_i_bsr_body_shared() {
-    emit_nyi("i_bsr_body_shared");
-}
-
-void BeamGlobalAssembler::emit_i_bsl_body_shared() {
-    emit_nyi("i_bsl_body_shared");
-}
-
 void BeamGlobalAssembler::emit_i_func_info_shared() {
     emit_nyi("i_func_info_shared");
-}
-
-void BeamGlobalAssembler::emit_i_bxor_body_shared() {
-    emit_nyi("i_bxor_body_shared");
 }
 
 void BeamGlobalAssembler::emit_int128_to_big_shared() {
@@ -379,29 +351,6 @@ void BeamModuleAssembler::emit_get_record_field(const ArgLabel &,
     emit_nyi("get_record_field");
 }
 
-void BeamModuleAssembler::emit_i_band(const ArgLabel &,
-                                      const ArgWord &,
-                                      const ArgSource &,
-                                      const ArgSource &,
-                                      const ArgRegister &) {
-    emit_nyi("i_band");
-}
-
-void BeamModuleAssembler::emit_i_bnot(const ArgLabel &,
-                                      const ArgWord &,
-                                      const ArgSource &,
-                                      const ArgRegister &) {
-    emit_nyi("i_bnot");
-}
-
-void BeamModuleAssembler::emit_i_bor(const ArgLabel &,
-                                     const ArgWord &,
-                                     const ArgSource &,
-                                     const ArgSource &,
-                                     const ArgRegister &) {
-    emit_nyi("i_bor");
-}
-
 void BeamModuleAssembler::emit_i_bs_create_bin(const ArgLabel &,
                                                const ArgWord &,
                                                const ArgWord &,
@@ -439,30 +388,6 @@ void BeamModuleAssembler::emit_i_bs_validate_unicode_retract(
         const ArgSource &,
         const ArgRegister &) {
     emit_nyi("i_bs_validate_unicode_retract");
-}
-
-void BeamModuleAssembler::emit_i_bsl(const ArgLabel &,
-                                     const ArgWord &,
-                                     const ArgSource &,
-                                     const ArgSource &,
-                                     const ArgRegister &) {
-    emit_nyi("i_bsl");
-}
-
-void BeamModuleAssembler::emit_i_bsr(const ArgLabel &,
-                                     const ArgWord &,
-                                     const ArgSource &,
-                                     const ArgSource &,
-                                     const ArgRegister &) {
-    emit_nyi("i_bsr");
-}
-
-void BeamModuleAssembler::emit_i_bxor(const ArgLabel &,
-                                      const ArgWord &,
-                                      const ArgSource &,
-                                      const ArgSource &,
-                                      const ArgRegister &) {
-    emit_nyi("i_bxor");
 }
 
 void BeamModuleAssembler::emit_i_create_local_native_record(
