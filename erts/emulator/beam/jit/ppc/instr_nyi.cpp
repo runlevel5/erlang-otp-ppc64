@@ -178,10 +178,6 @@ void BeamGlobalAssembler::emit_is_ge_lt_shared() {
     emit_nyi("is_ge_lt_shared");
 }
 
-void BeamGlobalAssembler::emit_minus_body_shared() {
-    emit_nyi("minus_body_shared");
-}
-
 void BeamGlobalAssembler::emit_mul_add_body_shared() {
     emit_nyi("mul_add_body_shared");
 }
@@ -194,16 +190,8 @@ void BeamGlobalAssembler::emit_mul_guard_shared() {
     emit_nyi("mul_guard_shared");
 }
 
-void BeamGlobalAssembler::emit_plus_body_shared() {
-    emit_nyi("plus_body_shared");
-}
-
 void BeamGlobalAssembler::emit_store_unaligned() {
     emit_nyi("store_unaligned");
-}
-
-void BeamGlobalAssembler::emit_unary_minus_body_shared() {
-    emit_nyi("unary_minus_body_shared");
 }
 
 /*
@@ -470,14 +458,6 @@ void BeamModuleAssembler::emit_i_m_div(const ArgLabel &,
     emit_nyi("i_m_div");
 }
 
-void BeamModuleAssembler::emit_i_minus(const ArgLabel &,
-                                       const ArgWord &,
-                                       const ArgSource &,
-                                       const ArgSource &,
-                                       const ArgRegister &) {
-    emit_nyi("i_minus");
-}
-
 void BeamModuleAssembler::emit_i_mul_add(const ArgLabel &,
                                          const ArgSource &,
                                          const ArgSource &,
@@ -485,14 +465,6 @@ void BeamModuleAssembler::emit_i_mul_add(const ArgLabel &,
                                          const ArgSource &,
                                          const ArgRegister &) {
     emit_nyi("i_mul_add");
-}
-
-void BeamModuleAssembler::emit_i_plus(const ArgLabel &,
-                                      const ArgWord &,
-                                      const ArgSource &,
-                                      const ArgSource &,
-                                      const ArgRegister &) {
-    emit_nyi("i_plus");
 }
 
 void BeamModuleAssembler::emit_i_rem(const ArgLabel &,
@@ -510,13 +482,6 @@ void BeamModuleAssembler::emit_i_rem_div(const ArgLabel &,
                                          const ArgRegister &,
                                          const ArgRegister &) {
     emit_nyi("i_rem_div");
-}
-
-void BeamModuleAssembler::emit_i_unary_minus(const ArgLabel &,
-                                             const ArgWord &,
-                                             const ArgSource &,
-                                             const ArgRegister &) {
-    emit_nyi("i_unary_minus");
 }
 
 void BeamModuleAssembler::emit_i_update_native_record(
