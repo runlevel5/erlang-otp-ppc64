@@ -78,18 +78,6 @@ void BeamGlobalAssembler::emit_get_sint64_shared() {
     emit_nyi("get_sint64_shared");
 }
 
-void BeamGlobalAssembler::emit_handle_map_get_badkey() {
-    emit_nyi("handle_map_get_badkey");
-}
-
-void BeamGlobalAssembler::emit_handle_map_get_badmap() {
-    emit_nyi("handle_map_get_badmap");
-}
-
-void BeamGlobalAssembler::emit_handle_map_size_error() {
-    emit_nyi("handle_map_size_error");
-}
-
 void BeamGlobalAssembler::emit_i_func_info_shared() {
     emit_nyi("i_func_info_shared");
 }
@@ -125,27 +113,6 @@ void BeamGlobalAssembler::emit_store_unaligned() {
 /*
  * Instructions.
  */
-
-void BeamModuleAssembler::emit_bif_is_map_key(const ArgWord &,
-                                              const ArgLabel &,
-                                              const ArgSource &,
-                                              const ArgSource &,
-                                              const ArgRegister &) {
-    emit_nyi("bif_is_map_key");
-}
-
-void BeamModuleAssembler::emit_bif_map_get(const ArgLabel &,
-                                           const ArgSource &,
-                                           const ArgSource &,
-                                           const ArgRegister &) {
-    emit_nyi("bif_map_get");
-}
-
-void BeamModuleAssembler::emit_bif_map_size(const ArgLabel &,
-                                            const ArgSource &,
-                                            const ArgRegister &) {
-    emit_nyi("bif_map_size");
-}
 
 void BeamModuleAssembler::emit_bs_init_writable() {
     emit_nyi("bs_init_writable");

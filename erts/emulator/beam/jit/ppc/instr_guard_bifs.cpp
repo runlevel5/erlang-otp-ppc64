@@ -806,6 +806,224 @@ void BeamModuleAssembler::emit_bif_hd(const ArgSource &Src,
 }
 
 /* ================================================================
+ *  is_map_key/2
+ * ================================================================
+ */
+
+void BeamModuleAssembler::emit_bif_is_map_key(const ArgWord &Bif,
+                                              const ArgLabel &Fail,
+                                              const ArgSource &Key,
+                                              const ArgSource &Src,
+                                              const ArgRegister &Dst) {
+    if (!exact_type<BeamTypeId::Map>(Src) && Fail.get() == 0) {
+        emit_i_bif2(Key, Src, Fail, Bif, Dst);
+        return;
+    }
+
+    comment("inlined BIF is_map_key/2");
+
+    mov_arg(ARG1, Src);
+    mov_arg(ARG2, Key);
+
+    if (!exact_type<BeamTypeId::Map>(Src)) {
+        emit_is_boxed(resolve_beam_label(Fail, dispUnknown), Src, ARG1);
+        if (masked_types<BeamTypeId::MaybeBoxed>(Src) != BeamTypeId::Map) {
+            ppc::Gp boxed_ptr = emit_ptr_val(TMP1, ARG1);
+            load_mem(TMP1, emit_boxed_val(boxed_ptr));
+            a.andi_rc(TMP1, TMP1, imm(_TAG_HEADER_MASK));
+            a.cmpdi(TMP1, imm(_TAG_HEADER_MAP));
+            a.bne(resolve_beam_label(Fail, disp32K));
+        }
+    }
+
+    if (maybe_one_of<BeamTypeId::MaybeImmediate>(Key)) {
+        fragment_call(ga->get_i_get_map_element_shared());
+        emit_cond_to_bool(ppc::cr0.eq(), true, Dst);
+    } else {
+        emit_enter_runtime();
+        runtime_call<Eterm (*)(Eterm, Eterm), get_map_element>();
+        emit_leave_runtime();
+
+        cmp(ARG1, THE_NON_VALUE);
+        emit_cond_to_bool(ppc::cr0.eq(), false, Dst);
+    }
+}
+
+/* ================================================================
+ *  map_get/2
+ * ================================================================
+ */
+
+void BeamGlobalAssembler::emit_handle_map_get_badmap() {
+    static ErtsCodeMFA mfa = {am_erlang, am_map_get, 2};
+    mov_imm(TMP1, BADMAP);
+    a.std(TMP1, ppc::Mem(c_p, offsetof(Process, freason)));
+    a.std(ARG1, ppc::Mem(c_p, offsetof(Process, fvalue)));
+    a.mr(XREG0, ARG2);
+    a.mr(XREG1, ARG1);
+    mov_imm(ARG4, &mfa);
+    a.b(labels[raise_exception]);
+}
+
+void BeamGlobalAssembler::emit_handle_map_get_badkey() {
+    static ErtsCodeMFA mfa = {am_erlang, am_map_get, 2};
+    mov_imm(TMP1, BADKEY);
+    a.std(TMP1, ppc::Mem(c_p, offsetof(Process, freason)));
+    a.std(ARG2, ppc::Mem(c_p, offsetof(Process, fvalue)));
+    a.mr(XREG0, ARG2);
+    a.mr(XREG1, ARG1);
+    mov_imm(ARG4, &mfa);
+    a.b(labels[raise_exception]);
+}
+
+void BeamModuleAssembler::emit_bif_map_get(const ArgLabel &Fail,
+                                           const ArgSource &Key,
+                                           const ArgSource &Src,
+                                           const ArgRegister &Dst) {
+    Label good_key = a.new_label();
+
+    mov_arg(ARG1, Src);
+    mov_arg(ARG2, Key);
+
+    if (exact_type<BeamTypeId::Map>(Src)) {
+        comment("skipped test for map for known map argument");
+    } else {
+        Label bad_map = a.new_label();
+        Label good_map = a.new_label();
+
+        if (Fail.get() == 0) {
+            emit_is_boxed(bad_map, Src, ARG1);
+        } else {
+            emit_is_boxed(resolve_beam_label(Fail, dispUnknown), Src, ARG1);
+        }
+
+        /* As an optimization for the `error | #{}` case, skip checking the
+         * header word when we know that the only possible boxed type
+         * is a map. */
+        if (masked_types<BeamTypeId::MaybeBoxed>(Src) == BeamTypeId::Map) {
+            comment("skipped header test since we know it's a map when boxed");
+            if (Fail.get() == 0) {
+                a.b(good_map);
+            }
+        } else {
+            ppc::Gp boxed_ptr = emit_ptr_val(TMP1, ARG1);
+            load_mem(TMP1, emit_boxed_val(boxed_ptr));
+            a.andi_rc(TMP1, TMP1, imm(_TAG_HEADER_MASK));
+            a.cmpdi(TMP1, imm(_TAG_HEADER_MAP));
+            if (Fail.get() == 0) {
+                a.beq(good_map);
+            } else {
+                a.bne(resolve_beam_label(Fail, disp32K));
+            }
+        }
+
+        a.bind(bad_map);
+        if (Fail.get() == 0) {
+            fragment_call(ga->get_handle_map_get_badmap());
+        }
+
+        a.bind(good_map);
+    }
+
+    if (maybe_one_of<BeamTypeId::MaybeImmediate>(Key)) {
+        fragment_call(ga->get_i_get_map_element_shared());
+        if (Fail.get() == 0) {
+            a.beq(good_key);
+        } else {
+            a.bne(resolve_beam_label(Fail, disp32K));
+        }
+    } else {
+        emit_enter_runtime();
+        if (!Key.isLiteral()) {
+            runtime_call<Eterm (*)(Eterm, Eterm), get_map_element>();
+        } else {
+            auto literal_key =
+                    beamfile_get_literal(beam, Key.as<ArgLiteral>().get());
+            mov_imm(ARG3, hashmap_make_hash(literal_key));
+            runtime_call<Eterm (*)(Eterm, Eterm, erts_ihash_t),
+                         get_map_element_hash>();
+        }
+        emit_leave_runtime();
+
+        if (Fail.get() == 0) {
+            emit_branch_if_value(ARG1, good_key);
+        } else {
+            emit_branch_if_not_value(ARG1,
+                                     resolve_beam_label(Fail, dispUnknown));
+        }
+    }
+
+    if (Fail.get() == 0) {
+        mov_arg(ARG1, Src);
+        mov_arg(ARG2, Key);
+        fragment_call(ga->get_handle_map_get_badkey());
+    }
+
+    a.bind(good_key);
+    mov_arg(Dst, ARG1);
+}
+
+/* ================================================================
+ *  map_size/1
+ * ================================================================
+ */
+
+void BeamGlobalAssembler::emit_handle_map_size_error() {
+    static ErtsCodeMFA mfa = {am_erlang, am_map_size, 1};
+    mov_imm(TMP1, BADMAP);
+    a.std(TMP1, ppc::Mem(c_p, offsetof(Process, freason)));
+    a.std(XREG0, ppc::Mem(c_p, offsetof(Process, fvalue)));
+    mov_imm(ARG4, &mfa);
+    a.b(labels[raise_exception]);
+}
+
+void BeamModuleAssembler::emit_bif_map_size(const ArgLabel &Fail,
+                                            const ArgSource &Src,
+                                            const ArgRegister &Dst) {
+    Label error = a.new_label(), good_map = a.new_label();
+    auto src = load_source(Src, TMP1);
+    auto dst = init_destination(Dst, TMP2);
+
+    if (Fail.get() == 0) {
+        emit_is_boxed(error, Src, src.reg);
+    } else {
+        emit_is_boxed(resolve_beam_label(Fail, dispUnknown), Src, src.reg);
+    }
+
+    ppc::Gp boxed_ptr = emit_ptr_val(TMP3, src.reg);
+
+    if (exact_type<BeamTypeId::Map>(Src)) {
+        comment("skipped type check because the argument is always a map");
+        a.bind(error); /* Never referenced. */
+    } else {
+        load_mem(TMP4, emit_boxed_val(boxed_ptr));
+        a.andi_rc(TMP4, TMP4, imm(_TAG_HEADER_MASK));
+        a.cmpdi(TMP4, imm(_TAG_HEADER_MAP));
+
+        if (Fail.get() == 0) {
+            a.beq(good_map);
+            a.bind(error);
+            {
+                mov_var(XREG0, src);
+                fragment_call(ga->get_handle_map_size_error());
+            }
+        } else {
+            a.bne(resolve_beam_label(Fail, disp32K));
+            a.bind(error); /* Never referenced. */
+        }
+    }
+
+    a.bind(good_map);
+    {
+        ERTS_CT_ASSERT(offsetof(flatmap_t, size) == sizeof(Eterm));
+        load_mem(TMP1, emit_boxed_val(boxed_ptr, sizeof(Eterm)));
+        a.sldi(TMP1, TMP1, _TAG_IMMED1_SIZE);
+        a.ori(dst.reg, TMP1, imm(_TAG_IMMED1_SMALL));
+        flush_var(dst);
+    }
+}
+
+/* ================================================================
  *  min/2
  *  max/2
  * ================================================================
