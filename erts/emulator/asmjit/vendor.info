@@ -14,11 +14,11 @@
     "homepage": "https://github.com/asmjit/asmjit",
     "licenseDeclared": "Zlib",
     "name": "asmjit",
-    "versionInfo": "5c39829eae005ce2f655ad17db3ba47f205ed82a",
+    "versionInfo": "20432994f6a7792276ee6b3ef656e621f7bbe0b0",
     "path": "./erts/emulator/asmjit",
     "exclude": ["./erts/emulator/asmjit/vendor.info"],
     "supplier": "Person: Petr Kobalicek",
     "purl": "pkg:github/runlevel5/asmjit",
-    "sha": "5c39829eae005ce2f655ad17db3ba47f205ed82a"
+    "sha": "20432994f6a7792276ee6b3ef656e621f7bbe0b0"
   }
 ]
