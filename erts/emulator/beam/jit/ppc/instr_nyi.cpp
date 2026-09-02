@@ -46,14 +46,6 @@ void BeamGlobalAssembler::emit_nyi(const char *msg) {
  * Shared fragments.
  */
 
-void BeamGlobalAssembler::emit_check_float_error() {
-    emit_nyi("check_float_error");
-}
-
-void BeamGlobalAssembler::emit_fconv_shared() {
-    emit_nyi("fconv_shared");
-}
-
 void BeamGlobalAssembler::emit_i_func_info_shared() {
     emit_nyi("i_func_info_shared");
 }
@@ -61,19 +53,6 @@ void BeamGlobalAssembler::emit_i_func_info_shared() {
 /*
  * Instructions.
  */
-
-void BeamModuleAssembler::emit_fconv(const ArgSource &, const ArgFRegister &) {
-    emit_nyi("fconv");
-}
-
-void BeamModuleAssembler::emit_fload(const ArgSource &, const ArgFRegister &) {
-    emit_nyi("fload");
-}
-
-void BeamModuleAssembler::emit_fstore(const ArgFRegister &,
-                                      const ArgRegister &) {
-    emit_nyi("fstore");
-}
 
 void BeamModuleAssembler::emit_get_record_field(const ArgLabel &,
                                                 const ArgRegister &,
@@ -99,35 +78,6 @@ void BeamModuleAssembler::emit_i_create_native_record(
         const ArgWord &,
         const Span<const ArgVal> &) {
     emit_nyi("i_create_native_record");
-}
-
-void BeamModuleAssembler::emit_i_fadd(const ArgFRegister &,
-                                      const ArgFRegister &,
-                                      const ArgFRegister &) {
-    emit_nyi("i_fadd");
-}
-
-void BeamModuleAssembler::emit_i_fdiv(const ArgFRegister &,
-                                      const ArgFRegister &,
-                                      const ArgFRegister &) {
-    emit_nyi("i_fdiv");
-}
-
-void BeamModuleAssembler::emit_i_fmul(const ArgFRegister &,
-                                      const ArgFRegister &,
-                                      const ArgFRegister &) {
-    emit_nyi("i_fmul");
-}
-
-void BeamModuleAssembler::emit_i_fnegate(const ArgFRegister &,
-                                         const ArgFRegister &) {
-    emit_nyi("i_fnegate");
-}
-
-void BeamModuleAssembler::emit_i_fsub(const ArgFRegister &,
-                                      const ArgFRegister &,
-                                      const ArgFRegister &) {
-    emit_nyi("i_fsub");
 }
 
 void BeamModuleAssembler::emit_i_get_record_elements(
