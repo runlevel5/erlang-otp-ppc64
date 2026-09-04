@@ -1189,6 +1189,10 @@ static void flush_instruction_cache_ppc(void* p, size_t size) noexcept {
   for (uintptr_t addr = Support::align_down(start, icache_block_size); addr < end; addr += icache_block_size) {
     __asm__ __volatile__("icbi 0, %0" : : "r"(addr) : "memory");
   }
+
+  // The invalidation must have been performed on all processors before the code can be executed (sync), and this
+  // processor must discard the instructions it has already fetched (isync).
+  __asm__ __volatile__("sync" : : : "memory");
   __asm__ __volatile__("isync" : : : "memory");
 }
 #endif
