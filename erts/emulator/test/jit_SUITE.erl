@@ -113,6 +113,8 @@ init_per_testcase(named_labels, Config) ->
 	    [{asmbefore,get_tmp_asm_files()}|Config];
 	"aarch64" ++ _ ->
 	    [{asmbefore,get_tmp_asm_files()}|Config];
+	"powerpc64" ++ _ ->
+	    [{asmbefore,get_tmp_asm_files()}|Config];
 	_ ->
 	    {skip, "Unsupported architecture"}
     end;
