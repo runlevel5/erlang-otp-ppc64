@@ -23,7 +23,7 @@
 # BeamAsm, the Erlang JIT
 
 BeamAsm provides load-time conversion of Erlang BEAM instructions into
-native code on x86-64 and aarch64. This allows the loader to eliminate any
+native code on x86-64, aarch64 and little-endian ppc64. This allows the loader to eliminate any
 instruction dispatching overhead and also specialize each instruction on their
 argument types.
 
@@ -38,7 +38,8 @@ in run-time. Only small parts of the
 [Assembler API](https://asmjit.com/doc/group__asmjit__assembler.html) of
 [asmjit](https://github.com/asmjit/asmjit) is used. At the moment
 [asmjit](https://github.com/asmjit/asmjit) only supports x86 32/64 bit and
-aarch64 assembler.
+aarch64 assembler. The version that is bundled with Erlang/OTP also has an
+assembler for ppc64.
 
 ## Loading Code
 
@@ -507,8 +508,13 @@ You will see a banner containing `[jit]` shell when you start. You can also use
 There are two major reasons why when building Erlang/OTP you would not get the
 JIT.
 
-* You are not building a 64-bit emulator for x86 or ARM
+* You are not building a 64-bit emulator for x86, ARM or little-endian PowerPC
 * You do not have a C++ compiler that supports C++-17
+
+On PowerPC the JIT is only enabled by default on Linux, and it requires a
+processor that implements Power ISA 3.0 (POWER9) or later. The emulator
+exits with an explanation if it is started on an older processor; use
+`erl -emu_flavor emu` to run the interpreter on such a machine.
 
 If you run `./configure --enable-jit` configure will abort when it discovers that
 your system cannot build the JIT.
@@ -546,7 +552,7 @@ during load-time.
 
 ### Would it be possible to add support for BeamAsm on another OS?
 
-Adding a new OS that runs x86-64 or aarch64 should not need any large changes
+Adding a new OS that runs x86-64, aarch64 or ppc64 should not need any large changes
 if the OS supports mapping of memory as executable. If the ABI used by the
 OS is not supported changes related to calling C-functions also have to
 be made.
