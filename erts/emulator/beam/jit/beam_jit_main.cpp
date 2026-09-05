@@ -131,6 +131,26 @@ static void init_cache_info() {
 #endif
 }
 
+/* Exits the emulator if the processor lacks something that the generated
+ * code cannot do without. */
+static void check_cpu_requirements() {
+#if defined(__powerpc64__) && defined(__linux__)
+#    ifndef PPC_FEATURE2_ARCH_3_00
+#        define PPC_FEATURE2_ARCH_3_00 0x00800000
+#    endif
+
+    /* The PPC64 JIT uses instructions that were introduced in Power ISA
+     * 3.0, `addpcis` among them, without testing whether they exist. */
+    if (!(getauxval(AT_HWCAP2) & PPC_FEATURE2_ARCH_3_00)) {
+        erts_exit(ERTS_ERROR_EXIT,
+                  "The JIT requires a processor that implements Power ISA "
+                  "3.0 (POWER9) or later.\n"
+                  "Start the emulator with '-emu_flavor emu' to use the "
+                  "interpreter instead.\n");
+    }
+#endif
+}
+
 /*
  * Enter all BIFs into the export table.
  *
@@ -271,6 +291,8 @@ void beamasm_init() {
     unsigned label = 1;
 
     ASSERT(bga == nullptr && bma == nullptr);
+
+    check_cpu_requirements();
 
     struct operands {
         Eterm name;
