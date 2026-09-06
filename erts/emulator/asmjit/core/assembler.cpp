@@ -297,6 +297,7 @@ Error BaseAssembler::embed_label(const Label& label, size_t data_size) {
   re->_source_section_id = _section->section_id();
   re->_source_offset = offset();
   re->_format.reset_to_simple_value(OffsetType::kUnsignedOffset, data_size);
+  re->_format.set_big_endian(_environment.is_big_endian());
 
   if (le.is_bound()) {
     re->_target_section_id = le.section_id();
@@ -305,6 +306,7 @@ Error BaseAssembler::embed_label(const Label& label, size_t data_size) {
   else {
     OffsetFormat of;
     of.reset_to_simple_value(OffsetType::kUnsignedOffset, data_size);
+    of.set_big_endian(_environment.is_big_endian());
 
     Fixup* fixup = _code->new_fixup(le, _section->section_id(), offset(), 0, of);
     if (ASMJIT_UNLIKELY(!fixup)) {
@@ -361,7 +363,12 @@ Error BaseAssembler::embed_label_delta(const Label& label, const Label& base, si
   // If both labels are bound within the same section it means the delta can be calculated now.
   if (label_entry.is_bound() && base_entry.is_bound() && label_entry.section_id() == base_entry.section_id()) {
     uint64_t delta = label_entry.offset() - base_entry.offset();
-    writer.emit_value_le(delta, data_size);
+    if (_environment.is_big_endian()) {
+      writer.emit_value_be(delta, data_size);
+    }
+    else {
+      writer.emit_value_le(delta, data_size);
+    }
   }
   else {
     RelocEntry* re;
@@ -381,6 +388,7 @@ Error BaseAssembler::embed_label_delta(const Label& label, const Label& base, si
     exp->set_value_as_label_id(1, base.id());
 
     re->_format.reset_to_simple_value(OffsetType::kSignedOffset, data_size);
+    re->_format.set_big_endian(_environment.is_big_endian());
     re->_source_section_id = _section->section_id();
     re->_source_offset = offset();
     re->_payload = (uint64_t)(uintptr_t)exp;
