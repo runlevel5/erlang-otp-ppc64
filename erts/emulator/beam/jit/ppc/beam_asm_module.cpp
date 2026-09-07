@@ -972,11 +972,18 @@ void BeamModuleAssembler::emit_constant(const Constant &constant) {
             break;
         case ArgVal::Type::Catch: {
             auto handler = rawLabels[value.as<ArgCatch>().get()];
-            catches.push_back({{anchor, 0, 0}, handler});
 
             /* Catches are limited to 32 bits, but since we don't want to load
              * 32-bit argument values due to displacement limits, we'll store
-             * this as a 64-bit value with the upper bits cleared. */
+             * this as a 64-bit value with the upper bits cleared.
+             *
+             * Only the lower 32 bits are patched, and where they are
+             * depends on the byte order. */
+#if defined(WORDS_BIGENDIAN)
+            catches.push_back({{anchor, sizeof(Uint32), 0}, handler});
+#else
+            catches.push_back({{anchor, 0, 0}, handler});
+#endif
             a.embed_uint64(INT_MAX);
             break;
         }
