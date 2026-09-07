@@ -3113,6 +3113,15 @@ AS_IF([test ${enable_jit} != no],
               ;;
            esac
            ;;
+        ppc64)
+           # The PPC64 JIT is not ready for big-endian systems, so it is only
+           # enabled there when explicitly asked for.
+           if test ${enable_jit} = yes; then
+             JIT_ARCH=ppc
+           else
+             enable_jit=no
+           fi
+           ;;
         *)
            if test ${enable_jit} = yes; then
              AC_MSG_ERROR([JIT only works on x86 64-bit, ARM 64-bit and little-endian PowerPC 64-bit])
