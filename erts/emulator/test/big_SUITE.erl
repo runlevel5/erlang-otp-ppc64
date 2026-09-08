@@ -2,9 +2,9 @@
 %% %CopyrightBegin%
 %%
 %% SPDX-License-Identifier: Apache-2.0
-%% 
-%% Copyright Ericsson AB 1997-2025. All Rights Reserved.
-%% 
+%%
+%% Copyright Ericsson AB 1997-2026. All Rights Reserved.
+%%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
 %% You may obtain a copy of the License at
@@ -16,7 +16,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
-%% 
+%%
 %% %CopyrightEnd%
 %%
 -module(big_SUITE).
@@ -40,6 +40,7 @@
 
 
 -include_lib("common_test/include/ct.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 suite() ->
     [{ct_hooks,[ts_install_cth]},
@@ -387,6 +388,23 @@ system_limit(Config) when is_list(Config) ->
     {'EXIT',{system_limit,_}} = (catch apply(erlang, id('bsl'), [Maxbig,2])),
     {'EXIT',{system_limit,_}} = (catch id(1) bsl (1 bsl 45)),
     {'EXIT',{system_limit,_}} = (catch id(1) bsl (1 bsl 69)),
+
+    ?assertError(system_limit, Maxbig bxor -1),
+    ?assertError(system_limit, apply(erlang, id('bxor'), [Maxbig,-1])),
+    if
+        is_integer(Maxbig bxor -1) -> error(should_fail);
+        true -> ok
+    end,
+
+    %% bnot -Maxbig should not raise an exception.
+    MaxMinusOne = Maxbig - 1,
+    MinusMaxbig = -Maxbig,
+    MaxMinusOne = bnot MinusMaxbig,
+    MaxMinusOne = apply(erlang, id('bnot'), [MinusMaxbig]),
+
+    %% -Maxbig bxor -1 should not raise an exception.
+    MaxMinusOne = MinusMaxbig bxor -1,
+    MaxMinusOne = apply(erlang, id('bxor'), [MinusMaxbig,-1]),
 
     %% There should be no system_limit exception when shifting a zero.
     0 = id(0) bsl (1 bsl 128),

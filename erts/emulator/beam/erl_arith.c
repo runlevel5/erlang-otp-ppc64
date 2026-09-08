@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * Copyright Ericsson AB 1999-2025. All Rights Reserved.
+ * Copyright Ericsson AB 1999-2026. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1375,8 +1375,11 @@ Eterm erts_bxor(Process* p, Eterm arg1, Eterm arg2)
     need = BIG_NEED_SIZE(MAX(big_size(arg1), big_size(arg2)) + 1);
     hp = HeapFragOnlyAlloc(p, need);
     arg1 = big_bxor(arg1, arg2, hp);
-    ASSERT(is_not_nil(arg1));
     maybe_shrink(p, hp, arg1, need);
+    if (is_nil(arg1)) {
+        p->freason = SYSTEM_LIMIT;
+        return THE_NON_VALUE;
+    }
     return arg1;
 }
 
