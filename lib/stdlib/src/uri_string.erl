@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2017-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2017-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -1810,12 +1810,14 @@ calculate_parsed_query_fragment(Input, Unparsed) ->
 
 get_port(<<>>) ->
     undefined;
-get_port(B) ->
+get_port(B) when byte_size(B) =< 5 ->
     try binary_to_integer(B)
     catch
         error:badarg ->
             throw({error, invalid_uri, B})
-    end.
+    end;
+get_port(B) ->
+    throw({error, invalid_uri, B}).
 
 
 %% Strip last char if it is in list
