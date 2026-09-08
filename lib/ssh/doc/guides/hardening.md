@@ -378,7 +378,7 @@ handling plugin `m:ssh_file`. The alternatives are:
 
   ```erlang
   fun(User, Password, _PeerAddress, State) ->
-          case lists:member({User,Password}, my_user_pwds()) of
+          case check_credentials(User, Password) of
               true ->
                   {true, undefined}; % Reset delay time
               false when State == undefined ->
@@ -391,10 +391,45 @@ handling plugin `m:ssh_file`. The alternatives are:
   end.
   ```
 
+  > #### Warning {: .warning }
+  >
+  > A `pwdfun` implementation should take care to execute in approximately
+  > the same time regardless of whether the username is valid or invalid.
+  > A timing difference allows attackers to enumerate valid usernames.
+  > Use constant-time comparison for password checking and avoid early
+  > returns based on username validity.
+
   If a public key is used for logging in, there is normally no checking of the
   user name. It could be enabled by setting the option
   [`pk_check_user`](`m:ssh#option-pk_check_user`) to `true`. In that case the
   pwdfun will get the atom `pubkey` in the password argument.
+
+## SFTP symlink risks
+
+Symbolic links inside the SFTP root that point outside it can be followed by
+file operations such as `open`, `read`, and `stat`.  The `root` option
+confines path resolution done by the daemon itself, but it does not prevent
+the operating system from following symlinks when the daemon opens the
+resulting path.
+
+Symlinks created by SFTP clients are not exploitable this way: the daemon
+converts the target to an absolute path and clamps it to the configured root
+before writing the link.  However, symlinks that already exist inside the root
+directory, or are created through other access channels (shell access, another
+service, etc.), can point outside the root and will be followed.
+
+Mitigations:
+
+- **Filesystem permissions** - Run the SSH daemon as a dedicated user with
+  minimal privileges.  Ensure that user cannot read or write sensitive files
+  outside the root.
+
+- **Control the root contents** - Ensure no pre-existing symlinks in the root
+  point outside it, and that no other process can create such links.
+
+- **OS-level protections** - On Linux, mount the root directory with the
+  `nosymfollow` mount option, or use filesystem namespaces to prevent
+  symlink traversal outside the root.
 
 ## Client Connection Options
 
