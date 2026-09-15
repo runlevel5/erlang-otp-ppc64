@@ -126,7 +126,6 @@ init([Manager, ConfigDB, AcceptTimeout]) ->
                            true -> get_keepalive_timeout(ConfigDB);
                            _ -> infinity
                        end,
-
             case http_transport:negotiate(SocketType, Socket, ?HANDSHAKE_TIMEOUT) of
                 {error, {tls_alert, {_, AlertDesc}} = Error} ->
                     ModData = #mod{config_db = ConfigDB, init_data = #init_data{peername = Peername,
@@ -249,9 +248,7 @@ handle_info({Proto, Socket, Data},
   when (((Proto =:= tcp) orelse 
 	 (Proto =:= ssl) orelse 
 	 (Proto =:= dummy)) andalso is_binary(Data)) ->
-
     RequestTimeoutState = activate_request_timeout(State),
-
     try Module:Function([Data | Args]) of
         {ok, Result} ->
             NewState = update_data_size(RequestTimeoutState, Data),
@@ -262,8 +259,7 @@ handle_info({Proto, Socket, Data},
 	    NewModData =  ModData#mod{http_version = Version},
 	    httpd_response:send_status(NewModData, ErrCode, ErrStr, {max_size, MaxSize}),
 	    {stop, normal, RequestTimeoutState#state{response_sent = true,
-				       mod = NewModData}};
-
+                                                     mod = NewModData}};
         {error, {version_error, ErrCode, ErrStr}, Version} ->
             NewModData =  ModData#mod{http_version = Version},
 	    httpd_response:send_status(NewModData, ErrCode, ErrStr),
@@ -283,6 +279,7 @@ handle_info({Proto, Socket, Data},
             setopts(Socket, SockType, [{active, once}]),
             NewState = update_data_size(RequestTimeoutState, Data),
             {noreply, NewState#state{mfa = NewMFA}}
+
         catch throw:{error, Error} when Module =:= http_chunk ->
             handle_chunk_size_error(Error, State)
     end;
@@ -758,7 +755,7 @@ cancel_timeout(#state{timer = undefined} = State) ->
     State;
 cancel_timeout(#state{timer = {Timer, _}} = State) ->
     erlang:cancel_timer(Timer),
-    receive 
+    receive
         timeout ->
             ok
     after 0 ->

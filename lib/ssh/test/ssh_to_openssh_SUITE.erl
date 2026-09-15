@@ -335,14 +335,19 @@ eserver_oclient_renegotiate_helper1(Config) ->
     {Data, OpenSsh, Pid}.
 
 eserver_oclient_renegotiate_helper2({Data, OpenSsh, Pid}) ->
+    PQCAvailable = lists:member(mlkem768, crypto:supports(kems)),
     Expect = fun({data,R}) ->
                      Warning =
                          <<"WARNING: connection is not using a post-quantum key exchange algorithm">>,
                      case binary:match(R, Warning) of
                          nomatch -> ok;
-                         _ ->
+                         _ when PQCAvailable ->
                              ?CT_PAL("~p", [R]),
-                             ct:fail(pqc_warning_detected)
+                             ct:fail(pqc_warning_detected);
+                         _ ->
+                             ?CT_LOG("PQC warning ignored: mlkem768 not available in crypto backend"),
+                             ct:comment("PQC kex unavailable (LibreSSL lacks ML-KEM support)"),
+                             ok
                      end,
 		     try
 			 NonAlphaChars = [C || C<-lists:seq(1,255),
@@ -519,7 +524,7 @@ tunnel_in_erlclient_erlserver_denied(Config) ->
 
 %%--------------------------------------------------------------------
 tunnel_in_erlclient_openssh_server(_Config) ->
-    C = ssh_test_lib:connect(?SSH_DEFAULT_PORT, [?ALIVE]),
+    C = ssh_test_lib:connect_with_retry(?SSH_DEFAULT_PORT, [?ALIVE]),
     {ToSock, ToHost, ToPort} = tunneling_listner(),
     
     ListenHost = {127,0,0,1},
@@ -551,7 +556,7 @@ tunnel_out_erlclient_erlserver(Config) ->
 
 %%--------------------------------------------------------------------
 tunnel_out_erlclient_openssh_server(_Config) ->
-    C = ssh_test_lib:connect(?SSH_DEFAULT_PORT, [?ALIVE]),
+    C = ssh_test_lib:connect_with_retry(?SSH_DEFAULT_PORT, [?ALIVE]),
     {ToSock, ToHost, ToPort} = tunneling_listner(),
     
     ListenHost = {127,0,0,1},
@@ -568,9 +573,9 @@ tunneling_listner() ->
     {LSock, LHost, LPort}.
 
 test_tunneling(ListenSocket, Host, Port) ->
-    {ok,Client1} = gen_tcp:connect(Host, Port, [{active,false}]),
+    {ok,Client1} = connect_with_retry(Host, Port, [{active,false}], 10),
     {ok,Server1} = gen_tcp:accept(ListenSocket),
-    {ok,Client2} = gen_tcp:connect(Host, Port, [{active,false}]),
+    {ok,Client2} = connect_with_retry(Host, Port, [{active,false}], 10),
     {ok,Server2} = gen_tcp:accept(ListenSocket),
     send_rcv("Hi!", Client1, Server1),
     send_rcv("Happy to see you!", Server1, Client1),
@@ -580,8 +585,20 @@ test_tunneling(ListenSocket, Host, Port) ->
     send_rcv("Still there?", Client2, Server2),
     send_rcv("Yes!", Server2, Client2),
     close_and_check(Server2, Client2).
-    
-    
+
+
+connect_with_retry(Host, Port, Opts, Retries) ->
+    case gen_tcp:connect(Host, Port, Opts) of
+        {ok, Sock} ->
+            {ok, Sock};
+        {error, econnrefused} when Retries > 0 ->
+            timer:sleep(100),
+            connect_with_retry(Host, Port, Opts, Retries - 1);
+        Other ->
+            Other
+    end.
+
+
 close_and_check(OneSide, OtherSide) ->
     ok = gen_tcp:close(OneSide),
     ok = chk_closed(OtherSide).
@@ -738,14 +755,27 @@ no_forwarding(Config) ->
 check_kex_strict(Sock) ->
     %% Send some version, in order to receive KEXINIT from server
     ok = gen_tcp:send(Sock, "SSH-2.0-OpenSSH_9.5\r\n"),
-    ct:sleep(100),
-    {ok, Packet} = gen_tcp:recv(Sock, 0),
-    case string:find(Packet, ?kex_strict_s) of
+    Data = recv_kexinit_data(Sock, <<>>),
+    case string:find(Data, ?kex_strict_s) of
         nomatch ->
             ct:log("KEX strict NOT supported by local OpenSSH"),
             false;
         _ ->
             ct:log("KEX strict supported by local OpenSSH"),
             true
+    end.
+
+recv_kexinit_data(_Sock, Acc) when byte_size(Acc) > 4096 ->
+    Acc;
+recv_kexinit_data(Sock, Acc) ->
+    case gen_tcp:recv(Sock, 0, 2000) of
+        {ok, Packet} ->
+            Combined = iolist_to_binary([Acc, Packet]),
+            case string:find(Combined, "kex-strict") of
+                nomatch -> recv_kexinit_data(Sock, Combined);
+                _ -> Combined
+            end;
+        {error, _} ->
+            Acc
     end.
 

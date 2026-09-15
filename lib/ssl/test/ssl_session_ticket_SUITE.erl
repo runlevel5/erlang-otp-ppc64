@@ -1487,7 +1487,6 @@ ticket_server_restart(Config) when is_list(Config) ->
                               [true, wait_reply]}}},
 
     %% Use ticket
-    ct:pal("FOO ~p",[Ticket1]),
     ClientOpts1 = [{use_ticket, [Ticket1]} | ClientOpts],
     Client2 = ssl_test_lib:start_client([{node, ClientNode},
                                          {port, Port0}, {host, Hostname},

@@ -144,7 +144,6 @@ zero_length_avp_infinite_loop(_Config) ->
                      0, 0, 0, 1,   %% AVP Code=1
                      0,            %% Flags=0
                      0, 0, 0>>,    %% AVP Length=0
-
     RecvData = {recvdata, undefined, name, undefined, undefined, undefined, undefined},
     Pkt = #diameter_packet{bin = MalformedMsg},
     Request = {Pkt, undefined, undefined, undefined, undefined, RecvData},
@@ -160,7 +159,6 @@ short_length_avp_crash(_Config) ->
                      0, 0, 1, 7,   %% AVP Code=263 (Session-Id)
                      0,            %% Flags=0 (V-bit=0)
                      0, 0, 4>>,    %% AVP Length=4 (minimum is 8)
-
     RecvData = {recvdata, undefined, name, undefined, undefined, undefined, undefined},
     Pkt = #diameter_packet{bin = MalformedMsg},
     Request = {Pkt, undefined, undefined, undefined, undefined, RecvData},

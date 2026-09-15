@@ -3,7 +3,7 @@
 
 SPDX-License-Identifier: Apache-2.0
 
-Copyright Ericsson AB 2023-2025. All Rights Reserved.
+Copyright Ericsson AB 2023-2026. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -41,6 +41,16 @@ This document describes the changes made to the Eldap application.
 
   Own Id: OTP-19964
 
+## Eldap 1.2.16.1
+
+### Fixed Bugs and Malfunctions
+
+- eldap referral URL parsing now rejects a port component longer than 5 digits instead of attempting to convert an arbitrarily large digit string to an integer.
+
+  Own Id: OTP-20345 Aux Id: [PR-11538]
+
+[PR-11538]: https://github.com/erlang/otp/pull/11538
+
 ## Eldap 1.2.16
 
 ### Fixed Bugs and Malfunctions
@@ -75,6 +85,16 @@ This document describes the changes made to the Eldap application.
 [PR-9402]: https://github.com/erlang/otp/pull/9402
 [PR-9819]: https://github.com/erlang/otp/pull/9819
 [PR-9670]: https://github.com/erlang/otp/pull/9670
+
+## Eldap 1.2.14.2
+
+### Fixed Bugs and Malfunctions
+
+- eldap referral URL parsing now rejects a port component longer than 5 digits instead of attempting to convert an arbitrarily large digit string to an integer.
+
+  Own Id: OTP-20345 Aux Id: [PR-11538]
+
+[PR-11538]: https://github.com/erlang/otp/pull/11538
 
 ## Eldap 1.2.14.1
 

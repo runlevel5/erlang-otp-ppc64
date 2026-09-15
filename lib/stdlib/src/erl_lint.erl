@@ -273,6 +273,8 @@ format_error_1(non_latin1_module_unsupported) ->
     ~"module names with non-latin1 characters are not supported";
 format_error_1(empty_module_name) ->
     ~"the module name must not be empty";
+format_error_1(bad_module_name) ->
+    ~"the module name must be an atom";
 format_error_1(blank_module_name) ->
     ~"the module name must contain at least one visible character";
 format_error_1(ctrl_chars_in_module_name) ->
@@ -319,6 +321,8 @@ format_error_1({invalid_unsafe,D}) ->
 format_error_1({bad_unsafe,{F,A}}) ->
     {~"unsafe function ~tw/~w undefined or not exported",
      [F,A]};
+format_error_1({invalid_fa_attribute,D}) ->
+    {~"badly formed attribute ~tw", [D]};
 format_error_1({bad_nowarn_unused_function,{F,A}}) ->
     {~"function ~tw/~w undefined", [F,A]};
 format_error_1({bad_nowarn_unused_function,{F,A},GuessFA}) ->
@@ -1898,8 +1902,7 @@ nowarn_function(Tag, Opts) ->
 func_location_warning(Type, Fs, St) ->
     foldl(fun ({F,Anno}, St0) -> add_warning(Anno, {Type,F}, St0) end, St, Fs).
 
-func_location_error(Type, [{F,Anno}|Fs], St0, FAList) ->
-    {Name, Arity} = F,
+func_location_error(Type, [{{Name, Arity}=F,Anno}|Fs], St0, FAList) ->
     PossibleAs = lists:sort([A || {FName, A} <:- FAList, FName =:= Name]),
     case PossibleAs of
         [] ->
@@ -1916,6 +1919,9 @@ func_location_error(Type, [{F,Anno}|Fs], St0, FAList) ->
             St1 = add_error(Anno, {Type,F,{Name,PossibleAs}}, St0),
             func_location_error(Type, Fs, St1, FAList)
     end;
+func_location_error(Type, [{F,Anno}|Fs], St0, FAList) ->
+    St1 = add_error(Anno, {invalid_fa_attribute,F}, St0),
+    func_location_error(Type, Fs, St1, FAList);
 func_location_error(_, [], St, _) ->
     St.
 
@@ -4306,7 +4312,7 @@ is_fa({FuncName, Arity})
   when is_atom(FuncName), is_integer(Arity), Arity >= 0 -> true;
 is_fa(_) -> false.
 
-check_module_name(M, Anno, St0) ->
+check_module_name(M, Anno, St0) when is_atom(M) ->
     AllChars = atom_to_list(M),
     VisibleChars = remove_non_visible(AllChars),
     case {AllChars, VisibleChars} of
@@ -4329,7 +4335,9 @@ check_module_name(M, Anno, St0) ->
                 false ->
                     St1
             end
-    end.
+    end;
+check_module_name(_M, Anno, St) ->
+    add_error(Anno, bad_module_name, St).
 
 remove_non_visible(Cs) ->
     SP = $\s,                                   %Plain space.
@@ -4748,23 +4756,33 @@ lc_quals([{m_generate,_Anno,P,E} | Qs], Vt0, Uvt0, St0) ->
 lc_quals([{m_generate_strict,_Anno,P,E} | Qs], Vt0, Uvt0, St0) ->
     {Vt,Uvt,St} = handle_generator(P,E,Vt0,Uvt0,St0),
     lc_quals(Qs, Vt, Uvt, St);
+lc_quals([{match,Anno,P0,E0}=F|Qs], Vt0, Uvt0, St0) ->
+    %% A top-level match is never a guard test.
+    case is_feature_enabled(compr_assign, St0) of
+        true ->
+            {P,E} = rewrite_compr_assign(P0, E0),
+            {Vt,Uvt,St} = handle_generator(P, E, Vt0, Uvt0, false, St0),
+            lc_quals(Qs, Vt, Uvt, St);
+        false ->
+            St1 = add_error(Anno, compr_assign, St0),
+            {Fvt,St2} = expr(F, Vt0, St1),
+            lc_quals(Qs, vtupdate(Fvt, Vt0), Uvt0, St2)
+    end;
 lc_quals([F|Qs], Vt, Uvt, St0) ->
     Info = is_guard_test2_info(St0),
     {Fvt,St1} = case is_guard_test2(F, Info) of
 		    true -> guard_test(F, Vt, St0);
-		    false -> expr(F, Vt, check_compr_assign(F, St0))
+                    false -> expr(F, Vt, St0)
 		end,
     lc_quals(Qs, vtupdate(Fvt, Vt), Uvt, St1);
 lc_quals([], Vt, Uvt, St) ->
     {Vt, Uvt, St}.
 
-check_compr_assign({match,Anno,_,_}, St) ->
-    case is_feature_enabled(compr_assign, St) of
-        true -> St;
-        false -> add_error(Anno, compr_assign, St)
-    end;
-check_compr_assign(_, St) ->
-    St.
+%% Same as v3_core:rewrite_compr_assign/2. Expansion here is for scoping.
+rewrite_compr_assign(P1, {match,L2,P2,E}) ->
+    rewrite_compr_assign({match,L2,P1,P2}, E);
+rewrite_compr_assign(P, E) ->
+    {P, E}.
 
 is_feature_enabled(Name, St) ->
     lists:member(Name, St#lint.features).
@@ -4814,10 +4832,19 @@ handle_generators(Gens,Vt,Uvt,St0) ->
     {Vt3,NUvt,St5}.
 
 handle_generator(P,E,Vt,Uvt,St0) ->
+    handle_generator(P,E,Vt,Uvt,true,St0).
+
+handle_generator(P,E,Vt,Uvt,CheckUnusedE,St0) ->
     {Evt,St1} = expr(E, Vt, St0),
     %% Forget variables local to E immediately.
     Vt1 = vtupdate(vtold(Evt, Vt), Vt),
-    {_, St2} = check_unused_vars(Evt, Vt, St1),
+    St2 = case CheckUnusedE of
+              true ->
+                  {_, St} = check_unused_vars(Evt, Vt, St1),
+                  St;
+              false ->
+                  St1
+          end,
     {Pvt,Pnew,St3} = comprehension_pattern(P, Vt1, St2),
     %% Have to keep fresh variables separated from used variables somehow
     %% in order to handle for example X = foo(), [X || <<X:X>> <- bar()].

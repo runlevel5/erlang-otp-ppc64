@@ -2386,8 +2386,9 @@ get_qual_anno(Abstract) -> element(2, Abstract).
 %% generator(Line, Generator, Guard, State) -> {Generator',State}.
 %%  Transform a given generator into its #igen{} representation.
 
-generator(Line, {match,L,P,E}, Gs, StrictPats, St0) ->
-    generator(Line, {generate_strict,L,P,{cons,L,E,{nil,L}}}, Gs, StrictPats, St0);
+generator(Line, {match,L,P0,E0}, Gs, StrictPats, St0) ->
+    {P1, E1} = rewrite_compr_assign(P0, E0),
+    generator(Line, {generate_strict,L,P1,{cons,L,E1,{nil,L}}}, Gs, StrictPats, St0);
 generator(Line, {Generate,Lg,P0,E}, Gs, StrictPats, St0)
   when Generate =:= generate;
        Generate =:= generate_strict ->
@@ -2664,6 +2665,11 @@ list_gen_pattern(P0, Line, St) ->
 	nomatch -> {nomatch,add_warning(Line, {nomatch,pattern}, St)}
     end.
 
+rewrite_compr_assign(P1, {match,L2,P2,E}) ->
+    rewrite_compr_assign({match,L2,P1,P2}, E);
+rewrite_compr_assign(P, E) ->
+    {P, E}.
+
 %% is_guard_test(Expression) -> true | false.
 %%  Test if a general expression is a guard test.
 %%
@@ -2788,6 +2794,7 @@ add_bound_vars({mc, Pairs, BoundVars}, AccPat) ->
 %% add_pre_bound_vars(Ctx, Pre) -> Ctx.
 %%  Add variables bound in pre-expressions (from filters) to mc context.
 add_pre_bound_vars({lc, E}, _Pre) -> {lc, E};
+add_pre_bound_vars({mc, Pairs, nomatch}, _Pre) -> {mc, Pairs, nomatch};
 add_pre_bound_vars({mc, Pairs, BoundVars}, Pre) ->
     NewVars = ordsets:union([pre_expr_vars(E) || E <- Pre]),
     {mc, Pairs, ordsets:union(NewVars, BoundVars)}.
@@ -4818,8 +4825,10 @@ ibitstr_vars(Segs) ->
 
 ibitstr_vars(Segs, Vs) ->
     foldl(fun (#ibitstr{val=V,size=S}, Vs0) ->
-          lit_vars(V, lit_vars(S, Vs0))
-      end, Vs, Segs).
+                  lit_vars(V, lit_vars(S, Vs0));
+              (#c_bitstr{val=V,size=S}, Vs0) ->
+                  lit_vars(V, lit_vars(S, Vs0))
+          end, Vs, Segs).
 
 record_anno(L, #core{dialyzer=Dialyzer}=St) ->
     case erl_anno:record(L) andalso Dialyzer of

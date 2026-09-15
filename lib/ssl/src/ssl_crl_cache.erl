@@ -34,7 +34,7 @@ available.
 -moduledoc(#{since => "OTP 18.0"}).
 
 -include("ssl_internal.hrl").
--include_lib("public_key/include/public_key.hrl"). 
+-include_lib("public_key/include/public_key.hrl").
 
 -behaviour(ssl_crl_cache_api).
 
@@ -93,7 +93,7 @@ fresh_crl(#'DistributionPoint'{}, CRL) ->
     CRL.
 
 %%====================================================================
-%% API 
+%% API
 %%====================================================================
 
 %%--------------------------------------------------------------------
@@ -121,13 +121,13 @@ insert(DistPointURI, {file, File}) when is_list(DistPointURI) ->
     case file:read_file(File) of
 	{ok, PemBin} ->
 	    PemEntries = public_key:pem_decode(PemBin),
-	    CRLs = [ CRL || {'CertificateList', CRL, not_encrypted} 
-				<- PemEntries],
+            CRLs = [ CRL || {'CertificateList', CRL, not_encrypted}
+                                <- PemEntries],
 	    do_insert(DistPointURI, CRLs);
 	Error ->
 	    Error
     end;
-insert(DistPointURI, {der, CRLs}) ->	
+insert(DistPointURI, {der, CRLs}) ->
     do_insert(DistPointURI, CRLs).
 
 %%--------------------------------------------------------------------
@@ -143,13 +143,13 @@ delete({file, File}) ->
     case file:read_file(File) of
 	{ok, PemBin} ->
 	    PemEntries = public_key:pem_decode(PemBin),
-	    CRLs = [ CRL || {'CertificateList', CRL, not_encrypted} 
-				<- PemEntries],
+            CRLs = [ CRL || {'CertificateList', CRL, not_encrypted}
+                                <- PemEntries],
 	    ssl_manager:delete_crls({?NO_DIST_POINT, CRLs});
 	Error ->
 	    Error
     end;
-delete({der, CRLs}) ->	
+delete({der, CRLs}) ->
     ssl_manager:delete_crls({?NO_DIST_POINT, CRLs});
 
 delete(URI) ->
@@ -169,7 +169,7 @@ delete(URI) ->
 %%--------------------------------------------------------------------
 do_insert(URI, CRLs) ->
     case uri_string:normalize(URI, [return_map]) of
-	#{scheme := "http", 
+        #{scheme := "http",
           host := Host,
           path := Path} = Map ->
             Port = maps:get(port, Map, 80),
@@ -181,7 +181,7 @@ do_insert(URI, CRLs) ->
 
 get_crls([], _) ->
     not_available;
-get_crls([{uniformResourceIdentifier, "http"++_ = URL} | Rest], 
+get_crls([{uniformResourceIdentifier, "http"++_ = URL} | Rest],
 	 CRLDbInfo) ->
     URI = #{scheme := Scheme} = uri_string:normalize(URL, [return_map]),
     case cache_lookup(URI, CRLDbInfo) of
@@ -209,7 +209,7 @@ http_lookup(URL, #{host := Host} = URI, Rest,  {_, Args} = CRLDbInfo, Timeout) -
                     get_crls(Rest, CRLDbInfo)
             end;
 	_ ->
-	    get_crls(Rest, CRLDbInfo)
+            get_crls(Rest, CRLDbInfo)
     end.
 
 -doc false.
@@ -357,7 +357,7 @@ handle_http(URL, #{path :=  Path,
             end
     end.
 
-make_key(Host, Port, Path) -> 
+make_key(Host, Port, Path) ->
     Host ++ ":" ++ integer_to_list(Port) ++ Path.
 
 -doc false.

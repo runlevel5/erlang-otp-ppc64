@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * Copyright Ericsson AB 2019-2025. All Rights Reserved.
+ * Copyright Ericsson AB 2019-2026. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -71,7 +71,7 @@ static void resource_dtor(ErlNifEnv* env, void* obj)
 
     if (p->msg_env) {
         enif_send(env, &p->to, p->msg_env, p->msg);
-        enif_free(p->msg_env);
+        enif_free_env(p->msg_env);
     }
 }
 

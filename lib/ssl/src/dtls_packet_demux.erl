@@ -140,7 +140,7 @@ handle_call({accept, Accepter}, From, #state{active_n = N,
 					     listener = Socket} = State0) ->
     next_datagram(Socket, N),
     State = State0#state{first = false,
-			 accepters = queue:in({Accepter, From}, Accepters)},
+                         accepters = queue:in({Accepter, From}, Accepters)},
     {noreply, State};
 
 handle_call({accept, Accepter}, From, #state{accepters = Accepters} = State0) ->
@@ -380,12 +380,12 @@ setup_new_connection(User, From, Client, Msg, #state{dtls_processes = Processes,
 	    erlang:monitor(process, Pid),
 	    gen_server:reply(From, {ok, Pid}),
 	    Pid ! Msg,
-	    State#state{session_id_tracker = Tracker,
+            State#state{session_id_tracker = Tracker,
                         dtls_msq_queues = kv_insert(Client, {Pid, queue:new()}, MsgQueues),
 			dtls_processes = kv_insert(Pid, Client, Processes)};
 	{error, Reason} ->
 	    gen_server:reply(From, {error, Reason}),
-	    State#state{session_id_tracker = Tracker}
+            State#state{session_id_tracker = Tracker}
     end.
 
 kv_update(Key, Value, Store) ->

@@ -474,6 +474,10 @@ ifes_1(FVar, #c_map_pair{key=Key,val=Val}, _Safe) ->
     ifes_1(FVar, Key, false) andalso ifes_1(FVar, Val, false);
 ifes_1(FVar, #c_primop{args=Args}, _Safe) ->
     ifes_list(FVar, Args, false);
+ifes_1(FVar, #c_record{es=Elements}, _Safe) ->
+    ifes_list(FVar, Elements, false);
+ifes_1(FVar, #c_record_pair{val=Val}, _Safe) ->
+    ifes_1(FVar, Val, false);
 ifes_1(FVar, #c_seq{arg=Arg,body=Body}, Safe) ->
     %% Arg of a #c_seq{} has no effect so it's okay to use FVar there even if
     %% Safe=false.
@@ -2314,7 +2318,7 @@ is_simple_case_arg(_) -> false.
 %%
 
 is_bool_expr(#c_call{module=#c_literal{val=erlang},
-		     name=#c_literal{val=Name},args=Args}) ->
+		     name=#c_literal{val=Name},args=Args}) when is_atom(Name) ->
     NumArgs = length(Args),
     erl_internal:comp_op(Name, NumArgs) orelse
 	erl_internal:new_type_test(Name, NumArgs) orelse
@@ -2897,7 +2901,7 @@ void() -> #c_literal{val=ok}.
 descend(_Core, #sub{top=false}=Sub) ->
     Sub;
 descend(Core, #sub{top=true}=Sub) ->
-    case should_suppress_warning(Core) of
+    case is_compiler_generated(Core) of
         true ->
             %% In a list comprehension being ignored such as:
             %%

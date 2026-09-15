@@ -1942,13 +1942,22 @@ connection_info(#state{handshake_env = #handshake_env{sni_hostname = SNIHostname
                   _ ->
                       []
               end,
+    GroupInfo = case Version of
+                    ?TLS_1_3 when is_atom(ECCCurve), ECCCurve =/= undefined ->
+                        %% For TLS-1.3 the named group of the key exchange is
+                        %% negotiated via the supported_groups and key_share
+                        %% extensions and is kept in session.ecc
+                        [{selected_group, ECCCurve}];
+                    _ ->
+                        []
+                end,
     [{protocol, RecordCB:protocol_version(Version)},
      {session_id, SessionId},
      {session_data, term_to_binary(Session)},
      {session_resumption, Resumption},
      {selected_cipher_suite, CipherSuiteDef},
      {sni_hostname, SNIHostname},
-     {srp_username, SrpUsername} | CurveInfo] ++ MFLInfo ++ ssl_options_list(Opts).
+     {srp_username, SrpUsername} | CurveInfo] ++ GroupInfo ++ MFLInfo ++ ssl_options_list(Opts).
 
 security_info(#state{connection_states = #{current_read := Read,
                                            current_write := Write},
@@ -2316,12 +2325,11 @@ keylog_hs_alert(connection, #state{static_env = #static_env{role = client},
   when ?TLS_GTE(TlsVersion, ?TLS_1_3) ->
     #{server_handshake_traffic_secret := ServerHSSecret,
       security_parameters :=
-          #security_parameters{master_secret = {master_secret, STrafficSecret}
-                              }}
+          #security_parameters{application_traffic_secret = STrafficSecret}}
         = Read,
     #{client_handshake_traffic_secret := ClientHSSecret,
        security_parameters :=
-          #security_parameters{master_secret = {master_secret, CTrafficSecret},
+          #security_parameters{application_traffic_secret = CTrafficSecret,
                                client_random = ClientRandomBin,
                                client_early_data_secret = EarlySecret,
                                prf_algorithm = Prf
@@ -2365,7 +2373,7 @@ keylog_1_3_client_finished(Read, Write) ->
     #{server_handshake_traffic_secret := ServerHSSecret,
       security_parameters := #security_parameters{client_random = ClientRandomBin,
                                                   prf_algorithm = Prf,
-                                                  master_secret = {master_secret, TrafficSecret}
+                                                  application_traffic_secret = TrafficSecret
                                                  }}
         = Write,
     #{client_handshake_traffic_secret := ClientHSSecret,

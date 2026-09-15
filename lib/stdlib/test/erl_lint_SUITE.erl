@@ -95,7 +95,9 @@
          illegal_zip_generator/1,
          record_info_0/1,
          coverage/1,
-         native_records/1]).
+         native_records/1,
+         invalid_attribute/1,
+         block_compr_assign/1]).
 
 suite() ->
     [{ct_hooks,[ts_install_cth]},
@@ -137,7 +139,9 @@ all() ->
      illegal_zip_generator,
      record_info_0,
      coverage,
-     native_records].
+     native_records,
+     invalid_attribute,
+     block_compr_assign].
 
 groups() -> 
     [{unused_vars_warn, [],
@@ -3886,7 +3890,17 @@ otp_11861(Conf) when is_list(Conf) ->
               good(_) -> ok.
              ">>,
            [],
-           {warnings,[{{3,16},erl_lint,{ill_defined_optional_callbacks,bad_behaviour3}}]}}
+           {warnings,[{{3,16},erl_lint,{ill_defined_optional_callbacks,bad_behaviour3}}]}},
+
+           {bad_module_name,
+           <<"
+              -export([good/1]).
+              -behaviour(bad_behaviour/2).
+              good(_) -> ok.
+             ">>,
+           [],
+           {error,[{{3,16},erl_lint,bad_module_name}],
+            [{{3,16},erl_lint,{undefined_behaviour,{bad_behaviour,2}}}]}}
 	 ],
     [] = run(Conf, Ts),
 
@@ -6068,6 +6082,29 @@ native_records(Conf) ->
           }
          ],
     [] = run(Conf, Ts),
+    ok.
+
+invalid_attribute(Config) ->
+    Ts = [{invalid_fa,
+           <<"-compile({nowarn_unused_function,[{a/0,b/0,0}]}).
+            ">>,
+           {[]},
+           {errors,[{{1,22},erl_lint,{invalid_fa_attribute,{{a,0},{b,0},0}}}],[]}}
+           ],
+    [] = run(Config,Ts),
+
+    ok.
+
+block_compr_assign(Config) ->
+    Ts = [{block_compr_assign,
+           <<"-feature(compr_assign, enable).
+              f() -> [ok || _ = begin V = ok end, V].
+            ">>,
+           {[nowarn_unused_function]},
+           {errors,[{{2,51},erl_lint,{unbound_var,'V'}}],[]}}
+           ],
+    [] = run(Config,Ts),
+
     ok.
 
 %%%

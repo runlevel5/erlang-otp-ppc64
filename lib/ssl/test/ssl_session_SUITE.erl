@@ -685,13 +685,13 @@ session_server_restart(Config) when is_list(Config) ->
     {ClientNode, ServerNode, Hostname} = ssl_test_lib:run_where(Config),
     Test = self(),
     Server =
-	ssl_test_lib:start_server([{node, ServerNode}, {port, 0},
+        ssl_test_lib:start_server([{node, ServerNode}, {port, 0},
                                    {from, self()},
                                    {mfa, {?MODULE, accept_socket, [Test]}},
                                    {options, [{reuse_sessions, true} | ServerOpts]}]),
     Port = ssl_test_lib:inet_port(Server),
     {Client0, Client0Sock} =
-	ssl_test_lib:start_client([{node, ClientNode},
+        ssl_test_lib:start_client([{node, ClientNode},
                                    {port, Port}, {host, Hostname},
                                    {mfa, {ssl_test_lib, no_result, []}},
                                    {from, self()}, {options, [{reuse_sessions, save} | ClientOpts]},
@@ -700,19 +700,19 @@ session_server_restart(Config) when is_list(Config) ->
 
     {ok, [{session_id, ID}, {session_data, SessData}]} =
         ssl:connection_information(Client0Sock, [session_id, session_data]),
-   SSocket = receive 
-                 {server, SSocket0} ->
-                     SSocket0
-             end,
+    SSocket = receive
+                  {server, SSocket0} ->
+                      SSocket0
+              end,
     ssl_test_lib:close(Client0),
 
     Tracker = tracker(SSocket),
     exit(Tracker, kill), %% Fake server session handler crash
 
     Server ! listen,
-   
+
     {Client1, Client1Sock} =
-	ssl_test_lib:start_client([{node, ClientNode},
+        ssl_test_lib:start_client([{node, ClientNode},
                                    {port, Port}, {host, Hostname},
                                    {mfa, {ssl_test_lib, no_result, []}},
                                    {from, self()},
@@ -726,7 +726,7 @@ session_server_restart(Config) when is_list(Config) ->
     Server ! listen,
 
     {Client2, Client2Sock} =
-	ssl_test_lib:start_client([{node, ClientNode},
+        ssl_test_lib:start_client([{node, ClientNode},
                                    {port, Port}, {host, Hostname},
                                    {mfa, {ssl_test_lib, no_result, []}},
                                    {from, self()}, {options, [{reuse_sessions, save} | ClientOpts]},
@@ -741,13 +741,13 @@ session_server_restart(Config) when is_list(Config) ->
     Server ! listen,
 
     {Client3, Client3Sock} =
-	ssl_test_lib:start_client([{node, ClientNode},
+        ssl_test_lib:start_client([{node, ClientNode},
                                    {port, Port}, {host, Hostname},
                                    {mfa, {ssl_test_lib, no_result, []}},
                                    {from, self()},
                                    {options, [{reuse_session, {ID3, SessData3}} | ClientOpts]},
                                    return_socket]),
-
+    
     {ok, [{session_id, ID3}]} =
         ssl:connection_information(Client3Sock, [session_id]),
     ssl_test_lib:close(Client3).

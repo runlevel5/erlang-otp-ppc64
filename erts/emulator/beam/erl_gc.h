@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * Copyright Ericsson AB 2007-2025. All Rights Reserved.
+ * Copyright Ericsson AB 2007-2026. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,11 +23,11 @@
 #ifndef __ERL_GC_H__
 #define __ERL_GC_H__
 
+#define ERTS_POTENTIALLY_LONG_GC_HSIZE (128*1024) /* Words */
+
 #if defined(ERL_WANT_GC_INTERNALS__) || defined(ERTS_DO_INCL_GLB_INLINE_FUNC_DEF)
 
 /* GC declarations used by beam/erl_gc.c */
-
-#define ERTS_POTENTIALLY_LONG_GC_HSIZE (128*1024) /* Words */
 
 #include "erl_map.h"
 #include "erl_fun.h"

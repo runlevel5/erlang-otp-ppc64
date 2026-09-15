@@ -234,11 +234,7 @@ decode_data(ChunkSize, TotalChunk, Info = {MaxBodySize, BodySoFar, AccLength, Ma
 			   <<BodySoFar/binary, Data/binary>>,
 			   integer_to_list(AccLength), MaxHeaderSize, MaxHeaderSize);
 	%% There are more chunks, so here we go again...
-	<<Data:ChunkSize/binary, ?CR, ?LF>> ->
-	    NewBody = <<BodySoFar/binary, Data/binary>>,
-	    {?MODULE, decode_size, [<<>>, [], 0, {MaxBodySize, NewBody, AccLength, MaxHeaderSize}]};
-	<<Data:ChunkSize/binary, ?CR, ?LF, Rest/binary>> 
-	when AccLength < MaxBodySize; MaxBodySize == nolimit  ->
+        <<Data:ChunkSize/binary, ?CR, ?LF, Rest/binary>>  ->
 	    decode_size(Rest, [], 0,
 			{MaxBodySize, <<BodySoFar/binary, Data/binary>>,
 			 AccLength, MaxHeaderSize});

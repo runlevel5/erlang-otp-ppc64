@@ -174,7 +174,7 @@ property list.
   moment the server sent a response to a previous request.
   Default is `150` seconds.
 
-- [](){: #prop_max_body_size } **`{max_body_size, integer() | nolimit}`**  
+- [](){: #prop_max_body_size } **`{max_body_size, integer() | nolimit}`**
   Limits the size of the message body of an HTTP request. Default is no limit.
 
 - [](){: #prop_request_timeout } **`{request_timeout, pos_integer() | infinity}`**
@@ -194,7 +194,7 @@ property list.
   larger than this are answered with status 413. Default is `100000000` (100
   MB).
 
-- [](){: #prop_max_uri } **`{max_uri_size, integer() | nolimit}`**  
+- [](){: #prop_max_uri } **`{max_uri_size, integer() | nolimit}`**
   Limits the size of the HTTP request URI. Default is no limit.
 
 - [](){: #prop_max_keep_alive_req } **`{max_keep_alive_request, integer()}`**  

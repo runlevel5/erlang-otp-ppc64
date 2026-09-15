@@ -522,15 +522,12 @@ types(erlang, 'rem', Args) ->
 %% Some mixed-type arithmetic.
 types(erlang, Op, [LHS, RHS]) when Op =:= '+'; Op =:= '-' ->
     case get_range(LHS, RHS, #t_number{}) of
-        {Type, {A,B}, {C,_D}} when is_integer(C), C >= 0 ->
+        {Type, {A,B}, {C,_D}} when Op =:= '+',
+                                   is_integer(A), A >= 0,
+                                   is_integer(C), C >= 0 ->
+            %% The ranges have the same sign (positive). Will converge
+            %% to an upper limit of positive infinity.
             R = beam_bounds:bounds(Op, {A,B}, {C,'+inf'}),
-            RetType = case Type of
-                          integer -> #t_integer{elements=R};
-                          number -> #t_number{elements=R}
-                      end,
-            sub_unsafe(RetType, [#t_number{}, #t_number{}]);
-        {Type, {A,_B}, {C,D}} when Op =:= '+', is_integer(A), A >= 0 ->
-            R = beam_bounds:bounds(Op, {A,'+inf'}, {C,D}),
             RetType = case Type of
                           integer -> #t_integer{elements=R};
                           number -> #t_number{elements=R}
@@ -996,8 +993,10 @@ types(lists, zipwith, [Fun | [_,_]=Lists]) ->
 types(lists, keyfind, [KeyType,PosType,_]) ->
     %% Doesn't imply that the argument is a proper list; see lists:all/2
     TupleType = case meet(PosType, #t_integer{}) of
-                    #t_integer{elements={Index,Index}} when is_integer(Index),
-                                                            Index >= 1 ->
+                    #t_integer{elements={Index,Index}}
+                      when not is_integer(Index, 0, ?MAX_TUPLE_SIZE - 1) ->
+                        none;
+                    #t_integer{elements={Index,Index}} ->
                         Es = beam_types:set_tuple_element(Index, KeyType, #{}),
                         #t_tuple{size=Index,elements=Es};
                     #t_integer{} ->

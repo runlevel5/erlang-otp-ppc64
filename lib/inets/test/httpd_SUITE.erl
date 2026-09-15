@@ -135,9 +135,8 @@ groups() ->
      {post, [], [chunked_post,
                  chunked_chunked_encoded_post,
                  post_204,
-                 chunked_invalid_chunk_size,
-                 multiple_content_length_header]},
-     {basic_auth, [], [basic_auth_1_1, basic_auth_1_0, verify_href_1_1]},
+                 multiple_content_length_header,
+                 chunked_invalid_chunk_size]},
      {basic_auth, [], [basic_auth_1_1, basic_auth_1_0, verify_href_1_1,
                       double_slash_auth_bypass, case_insensitive_auth_bypass,
                       auth_path_canonicalization]},
@@ -149,13 +148,13 @@ groups() ->
              disk_log_bad_size, disk_log_bad_file]},
      {http_1_1, [], [esi_propagate,
                      esi_atom_leak,
-                     te_cl_smuggling_reject,
                      {group, http_1_1_parallel},
+                     te_cl_smuggling_reject,
                      cgi_bin_env] ++ load()},
      {http_1_1_parallel, [parallel],
       [host, chunked, expect, cgi, cgi_chunked_encoding_test,
-       trace, range, if_modified_since, mod_esi_chunk_timeout,
-       esi_put, esi_patch, esi_post, esi_headers]
+       trace, options, range, if_modified_since, mod_esi_chunk_timeout,
+       esi_put, esi_patch, esi_post, esi_options, esi_headers]
       ++ http_head() ++ http_get()},
      {http_1_0, [], [cgi_bin_env, {group, http_1_0_parallel} | load()]},
      {http_1_0_parallel, [parallel], [host, cgi, trace] ++ http_head() ++ http_get()},
@@ -1268,6 +1267,15 @@ esi_patch(Config) when is_list(Config) ->
 		     Config, [{statuscode, 200}]).
 
 %%-------------------------------------------------------------------------
+esi_options() ->
+    [{doc, "Test mod_esi OPTIONS"}].
+
+esi_options(Config) when is_list(Config) ->
+    ok = http_status("OPTIONS /cgi-bin/erl/httpd_example/options ",
+                     Config, [{statuscode, 200}]),
+    ok = http_status("OPTIONS * ", Config, [{statuscode, 501}]).
+
+%%-------------------------------------------------------------------------
 esi_post() ->
     [{doc, "Test mod_esi POST"}].
 
@@ -1670,6 +1678,15 @@ trace(Config) when is_list(Config) ->
     Cb = proplists:get_value(version_cb, Config),
     Cb:trace(proplists:get_value(type, Config), proplists:get_value(port, Config), 
 	     proplists:get_value(host, Config), proplists:get_value(node, Config)).
+%%-------------------------------------------------------------------------
+options() ->
+    [{doc, "Test OPTIONS method - accepted by httpd but no built-in handler"}].
+
+options(Config) when is_list(Config) ->
+    %% OPTIONS to a path - passes validation, no module handles it -> 501
+    ok = http_status("OPTIONS / ", Config, [{statuscode, 501}]),
+    %% OPTIONS * (asterisk-form, RFC 9110 Section 7.1) -> 501
+    ok = http_status("OPTIONS * ", Config, [{statuscode, 501}]).
 %%-------------------------------------------------------------------------
 light() ->
     [{doc, "Test light load"}].
@@ -2624,7 +2641,7 @@ do_max_clients(Config, MaxClients) ->
     [ inets_test_lib:close(Type, Socket) || Socket <- Connections ],
 
     wait_for_N(fun connection_children/0, 0, 5000),
-    
+
     ok = httpd_test_lib:verify_request(Type, Host, 
 				       Port,
 				       transport_opts(Type, Config),

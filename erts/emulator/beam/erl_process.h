@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * Copyright Ericsson AB 1996-2025. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2026. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1404,6 +1404,15 @@ void erts_check_for_holes(Process* p);
 /* MAYBE_SELF_SIGS - We might have outstanding signals
    from ourselves to ourselves. */
 #define ERTS_PXSFLG_MAYBE_SELF_SIGS	(((erts_aint32_t) 1) << 8)
+/* HANDOVER_CODE_MOD_PERM - Waiting process was given the code mod permission
+   but has not yet seized the lock. */
+#define ERTS_PXSFLG_HANDOVER_CODE_MOD_PERM   (((erts_aint32_t) 1) << 9)
+/* HANDOVER_CODE_STAGE_PERM - Waiting process was given the code stage permission
+   but has not yet seized the lock. */
+#define ERTS_PXSFLG_HANDOVER_CODE_STAGE_PERM (((erts_aint32_t) 1) << 10)
+/* GC - Process is garbage collecting */
+#define ERTS_PXSFLG_GC			     (((erts_aint32_t) 1) << 11)
+
 
 #define ERTS_PXSFLGS_QMASK 		ERTS_PSFLGS_QMASK
 #define ERTS_PXSFLGS_IN_CPU_PRQ_MASK_OFFSET 0

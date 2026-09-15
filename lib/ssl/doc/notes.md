@@ -23,6 +23,36 @@ limitations under the License.
 
 This document describes the changes made to the SSL application.
 
+## SSL 11.7.6
+
+### Fixed Bugs and Malfunctions
+
+- Undecodable `certificate_authorities` names are now skipped, as they are just a hint.
+
+  Own Id: OTP-20327 Aux Id: [PR-11356], [GH-11338]
+
+- Corrected generated keylog information generated from the `keylog_hs` option in the corner case that it was invoked after the client had reached its connection state, but the server closed the connection before it reached its connection state.
+
+  Own Id: OTP-20358 Aux Id: [PR-11570], ERIERL-1356
+
+[PR-11356]: https://github.com/erlang/otp/pull/11356
+[GH-11338]: https://github.com/erlang/otp/issues/11338
+[PR-11570]: https://github.com/erlang/otp/pull/11570
+
+### Improvements and New Features
+
+- Added TLS-1.3 `selected_group` to `ssl:connection_information/2`.
+
+  Own Id: OTP-20326 Aux Id: [PR-11440]
+
+- The ECDHE-PSK Chacha20-Poly1305
+  cipher suites are now supported. This is relevant for TLS-1.2 (and lower).
+
+  Own Id: OTP-20331 Aux Id: [PR-11345]
+
+[PR-11440]: https://github.com/erlang/otp/pull/11440
+[PR-11345]: https://github.com/erlang/otp/pull/11345
+
 ## SSL 11.7.5
 
 ### Fixed Bugs and Malfunctions
@@ -257,6 +287,178 @@ This document describes the changes made to the SSL application.
 [PR-10949]: https://github.com/erlang/otp/pull/10949
 [PR-10979]: https://github.com/erlang/otp/pull/10979
 [PR-11019]: https://github.com/erlang/otp/pull/11019
+
+## SSL 11.6.0.5
+
+### Fixed Bugs and Malfunctions
+
+- Debugging keylog_hs callback used for logging handshake secrets on failed connections swapped the argument order in logging function confusing server and client side. The bug was introduced in OTP 28.5
+
+  Own Id: OTP-20350 Aux Id: [PR-11553], ERIERL-1354
+
+[PR-11553]: https://github.com/erlang/otp/pull/11553
+
+### Improvements and New Features
+
+- Hardening improvements of the ssl application.
+  
+  TLS distribution now defaults to TLS-1.3 instead of TLS-1.2 (TLS-1.2 is kept as fallback for rolling upgrades).
+  
+  TLS-1.2 server with {verify, verify_peer} now defaults reuse_sessions to false to mitigate the Triple Handshake attack (RFC 7627). Set {reuse_sessions, true} explicitly to restore previous behavior.
+  
+  Various missing or faulty sanity checks added and TLS alerts adjusted to comply with RFC MUST requirements, including: signature algorithm validation for intermediate certificates, TLS-1.3 session_id echo, pre_shared_key extension ordering, and renegotiation_info enforcement.
+  
+  Hardened and improved CRL support. Introduces new option allowed_hosts for the optional CRL HTTP fetching feature to restrict which hosts may be contacted. Internal/loopback IPs are now blocked by default (SSRF protection).
+  
+  TLS-1.3 client ticket handling is more robust (locked tickets are released on client crash). Server TLS-1.3 ticket handling and anti-replay Bloom filter performance are optimized.
+  
+  DTLS duplicate ChangeCipherSpec handling simplified, fixing potential state machine confusion (GH-11075).
+  
+  Process state formatting no longer leaks secrets in crash logs.
+
+  Own Id: OTP-20289 Aux Id: [PR-11478]
+
+[PR-11478]: https://github.com/erlang/otp/pull/11478
+
+## SSL 11.6.0.4
+
+### Fixed Bugs and Malfunctions
+
+- Add pre TLS-1.3 client side validation of servers algorithm selection being part of clients offered algorithms, preventing in worst case MITM circumventing validation of server certificate tricking the client to trust the malicious MITM as it was a valid server. Note this check is already performed for TLS-1.3 clients.
+
+  Own Id: OTP-20240 Aux Id: [PR-11336], [CVE-2026-55953]
+
+- Prevent invalid cert chains to create cycles in chain building code used to handle 
+  chains that could be unordered or contain  extraneous certs. This avoids a DoS attack possibility.
+
+  Own Id: OTP-20245 Aux Id: [PR-11343], [CVE-2026-58227]
+
+- Clarify that rsa_psk and anonymous key exchange algorithms are considered legacy. Also harden rsa_psk in same way as normal rsa key exchange.
+
+  Own Id: OTP-20248 Aux Id: [PR-11341]
+
+- Harden SSL application to conform with best practice and RFC's. This will mostly improve error messages and conserve memory usage.
+
+  Own Id: OTP-20250 Aux Id: [PR-27944]
+
+- A certificate chain with crafted policyMappings extensions could cause exponential memory consumption during path validation, exploitable via TLS handshake. Chains exceeding a node-count cap are now rejected with {bad_cert, policy_tree_exceeded}.
+
+  Own Id: OTP-20251 Aux Id: [PR-11372], GHSA-622p-qfh6-c352
+
+[PR-11336]: https://github.com/erlang/otp/pull/11336
+[CVE-2026-55953]: https://nvd.nist.gov/vuln/detail/2026-55953
+[PR-11343]: https://github.com/erlang/otp/pull/11343
+[CVE-2026-58227]: https://nvd.nist.gov/vuln/detail/2026-58227
+[PR-11341]: https://github.com/erlang/otp/pull/11341
+[PR-27944]: https://github.com/erlang/otp/pull/27944
+[PR-11372]: https://github.com/erlang/otp/pull/11372
+
+## SSL 11.6.0.3
+
+### Fixed Bugs and Malfunctions
+
+- Correct small behavior bugs that
+  occasionally could cause DTLS connection errors, unwanted behavior for legacy  DHE_DSS, hiding of a distribution config error, and possible unorderly process tree shutdown.
+
+  Own Id: OTP-20190 Aux Id: [PR-11250]
+
+- Initialize DTLS cookie to random value to avoid DoS attack with forged cookie during startup window.
+
+  Own Id: OTP-20194 Aux Id: [PR-11271], [CVE-2026-54887]
+
+- Guard TLS client  for  MITM injection of application data during "plain-text-window" during handshake.
+
+  Own Id: OTP-20207 Aux Id: [PR-11270], [CVE-2026-54891]
+
+- Improve error handling of TLS PSK sending ILLIGAL_PARMETER alert if binders and PSK-identities are not matched. Also mend recovery mechanism  of ticket and session stores to be as resilient as possible to intermediate bugs.
+
+  Own Id: OTP-20216 Aux Id: [PR-11282], [CVE-2026-55952]
+
+- Fix race condition that could be used to DoS attack DTLS servers.
+
+  Own Id: OTP-20220 Aux Id: [PR-11306], [CVE-2026-55950]
+
+- A TLS-1.3 stateless session ticket with obfuscated_ticket_age set to
+  zero was incorrectly accepted without checking the server-side ticket
+  lifetime or the RFC 8446 Section 8.3 freshness window. The server now
+  always validates ticket age using its own timestamp regardless of the
+  client-reported age value.
+
+  Own Id: OTP-20230 Aux Id: [PR-11307]
+
+- TLS-1.3 client rejects a second HelloRetryRequest as requiered  in RFC 8446 Section 4.1.4
+
+  Own Id: OTP-20231 Aux Id: [PR-11309]
+
+- A busy client node could self-trigger a ticket store crash if unlucky with scheduling if auto mode is used.
+
+  Own Id: OTP-20232 Aux Id: [PR-11311]
+
+[PR-11250]: https://github.com/erlang/otp/pull/11250
+[PR-11271]: https://github.com/erlang/otp/pull/11271
+[CVE-2026-54887]: https://nvd.nist.gov/vuln/detail/2026-54887
+[PR-11270]: https://github.com/erlang/otp/pull/11270
+[CVE-2026-54891]: https://nvd.nist.gov/vuln/detail/2026-54891
+[PR-11282]: https://github.com/erlang/otp/pull/11282
+[CVE-2026-55952]: https://nvd.nist.gov/vuln/detail/2026-55952
+[PR-11306]: https://github.com/erlang/otp/pull/11306
+[CVE-2026-55950]: https://nvd.nist.gov/vuln/detail/2026-55950
+[PR-11307]: https://github.com/erlang/otp/pull/11307
+[PR-11309]: https://github.com/erlang/otp/pull/11309
+[PR-11311]: https://github.com/erlang/otp/pull/11311
+
+## SSL 11.6.0.2
+
+### Fixed Bugs and Malfunctions
+
+- Fix miscellanies issues that could cause unnecessary memory consumption and in some less common scenarios or configurations cause connection failures.
+
+  Own Id: OTP-20154 Aux Id: [PR-11148]
+
+- Erlang distribution over TLS run with the kernel 'check_ip' flag now properly enforce connecting nodes to be on the same LAN.
+
+  Own Id: OTP-20156 Aux Id: [CVE-2026-48860], GHSA-gp7x-mfv6-52cv, [PR-11181]
+
+- Enhance error message, by fixing typo of atom in new error message related to \`public_key\` CVE-2026-42790 solution.
+
+  Own Id: OTP-20161 Aux Id: [PR-11148]
+
+- Corrected SNI handling for TLS-1.3 only server, could cause connection failures if supported signature algorithms  where changed by SNI option update.
+
+  Own Id: OTP-20174 Aux Id: [PR-27384]
+
+[PR-11148]: https://github.com/erlang/otp/pull/11148
+[CVE-2026-48860]: https://nvd.nist.gov/vuln/detail/2026-48860
+[PR-11181]: https://github.com/erlang/otp/pull/11181
+[PR-11148]: https://github.com/erlang/otp/pull/11148
+[PR-27384]: https://github.com/erlang/otp/pull/27384
+
+## SSL 11.6.0.1
+
+### Fixed Bugs and Malfunctions
+
+- Add missing clauses to ssl_handshake:extension_value/1.
+  If an hello extension, missing a handling clause was present in a paused handshake, the handshake would fail.
+
+  Own Id: OTP-20116 Aux Id: [GH-11030], [PR-11062]
+
+- 'public_key', Adhere to RFC 9525, and remove support for legacy fallback to check hostname against subject common name. Also improve error handling creating two separate errors for name constraint check for subject names and subject alternative names.
+  
+  'ssl'. Error handling is slightly changed to better reflect public_key behaviour.
+
+  *** POTENTIAL INCOMPATIBILITY ***
+
+  Own Id: OTP-20130 Aux Id: [CVE-2026-42790], [PR-11124]
+
+- Could cause server to terminate a connection without an alert towards a bad client.
+
+  Own Id: OTP-20141 Aux Id: [PR-11125]
+
+[GH-11030]: https://github.com/erlang/otp/issues/11030
+[PR-11062]: https://github.com/erlang/otp/pull/11062
+[CVE-2026-42790]: https://nvd.nist.gov/vuln/detail/2026-42790
+[PR-11124]: https://github.com/erlang/otp/pull/11124
+[PR-11125]: https://github.com/erlang/otp/pull/11125
 
 ## SSL 11.6
 
@@ -605,6 +807,163 @@ This document describes the changes made to the SSL application.
 [PR-9563]: https://github.com/erlang/otp/pull/9563
 [PR-9511]: https://github.com/erlang/otp/pull/9511
 [PR-9670]: https://github.com/erlang/otp/pull/9670
+
+## SSL 11.2.12.12
+
+### Improvements and New Features
+
+- Hardening improvements of the ssl application.
+  
+  TLS distribution now defaults to TLS-1.3 instead of TLS-1.2 (TLS-1.2 is kept as fallback for rolling upgrades).
+  
+  TLS-1.2 server with {verify, verify_peer} now defaults reuse_sessions to false to mitigate the Triple Handshake attack (RFC 7627). Set {reuse_sessions, true} explicitly to restore previous behavior.
+  
+  Various missing or faulty sanity checks added and TLS alerts adjusted to comply with RFC MUST requirements, including: signature algorithm validation for intermediate certificates, TLS-1.3 session_id echo, pre_shared_key extension ordering, and renegotiation_info enforcement.
+  
+  Hardened and improved CRL support. Introduces new option allowed_hosts for the optional CRL HTTP fetching feature to restrict which hosts may be contacted. Internal/loopback IPs are now blocked by default (SSRF protection).
+  
+  TLS-1.3 client ticket handling is more robust (locked tickets are released on client crash). Server TLS-1.3 ticket handling and anti-replay Bloom filter performance are optimized.
+  
+  DTLS duplicate ChangeCipherSpec handling simplified, fixing potential state machine confusion (GH-11075).
+  
+  Process state formatting no longer leaks secrets in crash logs.
+
+  Own Id: OTP-20289 Aux Id: [PR-11478]
+
+[PR-11478]: https://github.com/erlang/otp/pull/11478
+
+## SSL 11.2.12.11
+
+### Fixed Bugs and Malfunctions
+
+- Add pre TLS-1.3 client side validation of servers algorithm selection being part of clients offered algorithms, preventing in worst case MITM circumventing validation of server certificate tricking the client to trust the malicious MITM as it was a valid server. Note this check is already performed for TLS-1.3 clients.
+
+  Own Id: OTP-20240 Aux Id: [PR-11336], [CVE-2026-55953]
+
+- Prevent invalid cert chains to create cycles in chain building code used to handle 
+  chains that could be unordered or contain  extraneous certs. This avoids a DoS attack possibility.
+
+  Own Id: OTP-20245 Aux Id: [PR-11343], [CVE-2026-58227]
+
+- Clarify that rsa_psk and anonymous key exchange algorithms are considered legacy. Also harden rsa_psk in same way as normal rsa key exchange.
+
+  Own Id: OTP-20248 Aux Id: [PR-11341]
+
+- Harden SSL application to conform with best practice and RFC's. This will mostly improve error messages and conserve memory usage.
+
+  Own Id: OTP-20250 Aux Id: [PR-27944]
+
+- A certificate chain with crafted policyMappings extensions could cause exponential memory consumption during path validation, exploitable via TLS handshake. Chains exceeding a node-count cap are now rejected with {bad_cert, policy_tree_exceeded}.
+
+  Own Id: OTP-20251 Aux Id: [PR-11372], GHSA-622p-qfh6-c352
+
+[PR-11336]: https://github.com/erlang/otp/pull/11336
+[CVE-2026-55953]: https://nvd.nist.gov/vuln/detail/2026-55953
+[PR-11343]: https://github.com/erlang/otp/pull/11343
+[CVE-2026-58227]: https://nvd.nist.gov/vuln/detail/2026-58227
+[PR-11341]: https://github.com/erlang/otp/pull/11341
+[PR-27944]: https://github.com/erlang/otp/pull/27944
+[PR-11372]: https://github.com/erlang/otp/pull/11372
+
+## SSL 11.2.12.10
+
+### Fixed Bugs and Malfunctions
+
+- Correct small behavior bugs that
+  occasionally could cause DTLS connection errors, unwanted behavior for legacy  DHE_DSS, hiding of a distribution config error, and possible unorderly process tree shutdown.
+
+  Own Id: OTP-20190 Aux Id: [PR-11250]
+
+- Initialize DTLS cookie to random value to avoid DoS attack with forged cookie during startup window.
+
+  Own Id: OTP-20194 Aux Id: [PR-11271], [CVE-2026-54887]
+
+- Guard TLS client  for  MITM injection of application data during "plain-text-window" during handshake.
+
+  Own Id: OTP-20207 Aux Id: [PR-11270], [CVE-2026-54891]
+
+- Improve error handling of TLS PSK sending ILLIGAL_PARMETER alert if binders and PSK-identities are not matched. Also mend recovery mechanism  of ticket and session stores to be as resilient as possible to intermediate bugs.
+
+  Own Id: OTP-20216 Aux Id: [PR-11282], [CVE-2026-55952]
+
+- Fix race condition that could be used to DoS attack DTLS servers.
+
+  Own Id: OTP-20220 Aux Id: [PR-11306], [CVE-2026-55950]
+
+- A TLS-1.3 stateless session ticket with obfuscated_ticket_age set to
+  zero was incorrectly accepted without checking the server-side ticket
+  lifetime or the RFC 8446 Section 8.3 freshness window. The server now
+  always validates ticket age using its own timestamp regardless of the
+  client-reported age value.
+
+  Own Id: OTP-20230 Aux Id: [PR-11307]
+
+- TLS-1.3 client rejects a second HelloRetryRequest as requiered  in RFC 8446 Section 4.1.4
+
+  Own Id: OTP-20231 Aux Id: [PR-11309]
+
+- A busy client node could self-trigger a ticket store crash if unlucky with scheduling if auto mode is used.
+
+  Own Id: OTP-20232 Aux Id: [PR-11311]
+
+[PR-11250]: https://github.com/erlang/otp/pull/11250
+[PR-11271]: https://github.com/erlang/otp/pull/11271
+[CVE-2026-54887]: https://nvd.nist.gov/vuln/detail/2026-54887
+[PR-11270]: https://github.com/erlang/otp/pull/11270
+[CVE-2026-54891]: https://nvd.nist.gov/vuln/detail/2026-54891
+[PR-11282]: https://github.com/erlang/otp/pull/11282
+[CVE-2026-55952]: https://nvd.nist.gov/vuln/detail/2026-55952
+[PR-11306]: https://github.com/erlang/otp/pull/11306
+[CVE-2026-55950]: https://nvd.nist.gov/vuln/detail/2026-55950
+[PR-11307]: https://github.com/erlang/otp/pull/11307
+[PR-11309]: https://github.com/erlang/otp/pull/11309
+[PR-11311]: https://github.com/erlang/otp/pull/11311
+
+## SSL 11.2.12.9
+
+### Fixed Bugs and Malfunctions
+
+- Fix miscellanies issues that could cause unnecessary memory consumption and in some less common scenarios or configurations cause connection failures.
+
+  Own Id: OTP-20154 Aux Id: [PR-11148]
+
+- Erlang distribution over TLS run with the kernel 'check_ip' flag now properly enforce connecting nodes to be on the same LAN.
+
+  Own Id: OTP-20156 Aux Id: [CVE-2026-48860], GHSA-gp7x-mfv6-52cv, [PR-11181]
+
+- Enhance error message, by fixing typo of atom in new error message related to \`public_key\` CVE-2026-42790 solution.
+
+  Own Id: OTP-20161 Aux Id: [PR-11148]
+
+- Corrected SNI handling for TLS-1.3 only server, could cause connection failures if supported signature algorithms  where changed by SNI option update.
+
+  Own Id: OTP-20174 Aux Id: [PR-27384]
+
+[PR-11148]: https://github.com/erlang/otp/pull/11148
+[CVE-2026-48860]: https://nvd.nist.gov/vuln/detail/2026-48860
+[PR-11181]: https://github.com/erlang/otp/pull/11181
+[PR-11148]: https://github.com/erlang/otp/pull/11148
+[PR-27384]: https://github.com/erlang/otp/pull/27384
+
+## SSL 11.2.12.8
+
+### Fixed Bugs and Malfunctions
+
+- 'public_key', Adhere to RFC 9525, and remove support for legacy fallback to check hostname against subject common name. Also improve error handling creating two separate errors for name constraint check for subject names and subject alternative names.
+  
+  'ssl'. Error handling is slightly changed to better reflect public_key behaviour.
+
+  *** POTENTIAL INCOMPATIBILITY ***
+
+  Own Id: OTP-20130 Aux Id: [CVE-2026-42790], [PR-11124]
+
+- Could cause server to terminate a connection without an alert towards a bad client.
+
+  Own Id: OTP-20141 Aux Id: [PR-11125]
+
+[CVE-2026-42790]: https://nvd.nist.gov/vuln/detail/2026-42790
+[PR-11124]: https://github.com/erlang/otp/pull/11124
+[PR-11125]: https://github.com/erlang/otp/pull/11125
 
 ## SSL 11.2.12.7
 
@@ -1071,6 +1430,18 @@ This document describes the changes made to the SSL application.
 [PR-8026]: https://github.com/erlang/otp/pull/8026
 [PR-8250]: https://github.com/erlang/otp/pull/8250
 [PR-8255]: https://github.com/erlang/otp/pull/8255
+
+## SSL 11.1.4.13
+
+### Fixed Bugs and Malfunctions
+
+* 'public_key', Adhere to RFC 9525, and remove support for legacy fallback to check hostname against subject common name. Also improve error handling creating two separate errors for name constraint check for subject names and subject alternative names.
+
+  'ssl'. Error handling is slightly changed to better reflect public_key behaviour.
+
+  \*** POTENTIAL INCOMPATIBILITY ***
+
+  Own Id: OTP-20130 Aux Id: CVE-2026-42790, PR-11124
 
 ## SSL 11.1.4.12
 

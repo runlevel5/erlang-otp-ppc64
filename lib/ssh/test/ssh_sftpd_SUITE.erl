@@ -351,23 +351,6 @@ read_file(Config) when is_list(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
-max_path(Config) when is_list(Config) ->
-    PrivDir =  proplists:get_value(priv_dir, Config),
-    FileName = filename:join(PrivDir, "test.txt"),
-    {Cm, Channel} = proplists:get_value(sftp, Config),
-    %% verify max_path limit
-    LongFileName =
-        filename:join(PrivDir,
-                      "t" ++ lists:flatten(lists:duplicate(?MAX_PATH, "e")) ++ "st.txt"),
-    {ok, _} = file:copy(FileName, LongFileName),
-    ReqId1 = req_id(),
-    {ok, <<?SSH_FXP_STATUS, ?UINT32(ReqId1), ?UINT32(?SSH_FX_NO_SUCH_PATH),
-	  _/binary>>, _} =
-	open_file(LongFileName, Cm, Channel, ReqId1,
-		  ?ACE4_READ_DATA  bor ?ACE4_READ_ATTRIBUTES,
-		  ?SSH_FXF_OPEN_EXISTING).
-
-%%--------------------------------------------------------------------
 read_file_chunk_limit(Config) when is_list(Config) ->
     PrivDir = proplists:get_value(priv_dir, Config),
     FileName = filename:join(PrivDir, "test2"),
@@ -389,6 +372,23 @@ read_file_chunk_limit(Config) when is_list(Config) ->
         read_file(Handle, Length, 0, Cm, Channel, NewReqId),
 
     Data = binary:copy(<<0>>, ?SFTP_MAX_READ_SIZE).
+
+%%--------------------------------------------------------------------
+max_path(Config) when is_list(Config) ->
+    PrivDir =  proplists:get_value(priv_dir, Config),
+    FileName = filename:join(PrivDir, "test.txt"),
+    {Cm, Channel} = proplists:get_value(sftp, Config),
+    %% verify max_path limit
+    LongFileName =
+        filename:join(PrivDir,
+                      "t" ++ lists:flatten(lists:duplicate(?MAX_PATH, "e")) ++ "st.txt"),
+    {ok, _} = file:copy(FileName, LongFileName),
+    ReqId1 = req_id(),
+    {ok, <<?SSH_FXP_STATUS, ?UINT32(ReqId1), ?UINT32(?SSH_FX_NO_SUCH_PATH),
+	  _/binary>>, _} =
+	open_file(LongFileName, Cm, Channel, ReqId1,
+		  ?ACE4_READ_DATA  bor ?ACE4_READ_ATTRIBUTES,
+		  ?SSH_FXF_OPEN_EXISTING).
 
 %%--------------------------------------------------------------------
 read_dir(Config) when is_list(Config) ->
