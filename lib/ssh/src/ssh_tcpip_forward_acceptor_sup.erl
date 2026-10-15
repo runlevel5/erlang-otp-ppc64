@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2008-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -46,6 +46,7 @@ start_child(Sup, LSock, ListenAddr, ConnectToAddr, ChanType, ChanCB, ConnPid) ->
     Args = [LSock, ListenAddr, ConnectToAddr, ChanType, ChanCB, ConnPid],
     supervisor:start_child(Sup, 
                            #{id     => {ListenAddr,ConnectToAddr},
+                             restart => transient,
                              start  => {ssh_tcpip_forward_acceptor, start_link, Args}
                             }).
     

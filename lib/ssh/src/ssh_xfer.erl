@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2005-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2005-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -339,7 +339,7 @@ xf_reply(XF, <<?SSH_FXP_ATTRS, ?UINT32(ReqID),
     {A, _} = decode_ATTR(XF#ssh_xfer.vsn, AData),
     {attrs, ReqID, A};
 xf_reply(_XF, <<?SSH_FXP_EXTENDED_REPLY, ?UINT32(ReqID),
-	      RData>>) ->
+                RData/binary>>) ->
     {extended_reply, ReqID, RData}.
 
 

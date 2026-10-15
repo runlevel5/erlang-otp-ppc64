@@ -179,7 +179,6 @@ initial_hello({call, From}, {start, Timeout},
     end;
 initial_hello({call, From}, {start, {Opts, EmOpts}, Timeout},
      #state{static_env = #static_env{role = Role},
-            handshake_env = #handshake_env{} = Env,
             ssl_options = OrigSSLOptions,
             socket_options = SockOpts} = State0) ->
     try
@@ -191,9 +190,10 @@ initial_hello({call, From}, {start, {Opts, EmOpts}, Timeout},
                               Other ->
                                   Other
                           end,
+        HsEnv = State#state.handshake_env,
         initial_hello({call, From}, {start, Timeout},
 	     State#state{ssl_options = SslOpts,
-                         handshake_env = Env#handshake_env{continue_status = CountinueStatus},
+                         handshake_env = HsEnv#handshake_env{continue_status = CountinueStatus},
                          socket_options = ssl_config:new_emulated(EmOpts, SockOpts)})
     catch throw:Error ->
 	   {stop_and_reply, {shutdown, normal}, {reply, From, {error, Error}}, State0}
@@ -301,6 +301,7 @@ wait_cert_verify(internal, #certificate_verify{signature = Signature,
                                                        client_certificate_status = needs_verifying,
                                                        public_key_info = PubKeyInfo} = HsEnv0,
                         connection_env = #connection_env{negotiated_version = Version},
+                        ssl_options = SslOpts,
                         session = #session{master_secret = MasterSecret} = Session0
                        } = State) ->
 
@@ -308,8 +309,20 @@ wait_cert_verify(internal, #certificate_verify{signature = Signature,
     %% Use negotiated value if TLS-1.2 otherwise return default
     HashSign = tls_dtls_gen_connection:negotiated_hashsign(CertHashSign, KexAlg,
                                                            PubKeyInfo, TLSVersion),
-    case ssl_handshake:certificate_verify(Signature, PubKeyInfo,
-					  TLSVersion, HashSign, MasterSecret, Hist) of
+    %% RFC 9155 §5: reject a CertificateVerify that uses a signature
+    %% algorithm the server did not offer (e.g. MD5/SHA-1 by default).
+    SupportedHashSigns = maps:get(signature_algs, SslOpts, undefined),
+    Result =
+        case ssl_handshake:certificate_verify_signature_algorithm(HashSign,
+                                                                  SupportedHashSigns,
+                                                                  TLSVersion) of
+            valid ->
+                ssl_handshake:certificate_verify(Signature, PubKeyInfo,
+                                                 TLSVersion, HashSign, MasterSecret, Hist);
+            #alert{} = SignAlgAlert ->
+                SignAlgAlert
+        end,
+    case Result of
 	valid ->
             HsEnv = HsEnv0#handshake_env{client_certificate_status = verified},
 	    Connection:next_event(cipher, no_record,

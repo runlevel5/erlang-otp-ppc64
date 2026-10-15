@@ -30,6 +30,7 @@
 
 -module(tls_dtls_server_connection).
 -moduledoc false.
+-feature(maybe_expr, enable).
 
 -include_lib("public_key/include/public_key.hrl").
 
@@ -227,6 +228,7 @@ wait_cert_verify(internal, #certificate_verify{signature = Signature,
                                                        client_certificate_status = needs_verifying,
                                                        public_key_info = PubKeyInfo} = HsEnv0,
                         connection_env = #connection_env{negotiated_version = Version},
+                        ssl_options = SslOpts,
                         session = #session{master_secret = MasterSecret} = Session0
                        } = State) ->
 
@@ -234,14 +236,23 @@ wait_cert_verify(internal, #certificate_verify{signature = Signature,
     %% Use negotiated value if TLS-1.2 otherwise return default
     HashSign = tls_dtls_gen_connection:negotiated_hashsign(CertHashSign, KexAlg,
                                                            PubKeyInfo, TLSVersion),
-    case ssl_handshake:certificate_verify(Signature, PubKeyInfo,
-					  TLSVersion, HashSign, MasterSecret, Hist) of
-	valid ->
-            HsEnv = HsEnv0#handshake_env{client_certificate_status = verified},
-	    Connection:next_event(cipher, no_record,
-				  State#state{handshake_env = HsEnv,
-                                              session = Session0#session{sign_alg = HashSign}});
-	#alert{} = Alert ->
+    %% RFC 9155 §5: reject a CertificateVerify that uses a signature
+    %% algorithm the server did not offer (e.g. MD5/SHA-1 by default),
+    %% then verify the signature itself. Both checks return valid | #alert{};
+    %% the maybe short-circuits to the alert, which is thrown as usual.
+    SupportedHashSigns = maps:get(signature_algs, SslOpts, undefined),
+    maybe
+        valid ?= ssl_handshake:certificate_verify_signature_algorithm(HashSign,
+                                                                      SupportedHashSigns,
+                                                                      TLSVersion),
+        valid ?= ssl_handshake:certificate_verify(Signature, PubKeyInfo,
+                                                  TLSVersion, HashSign, MasterSecret, Hist),
+        HsEnv = HsEnv0#handshake_env{client_certificate_status = verified},
+        Connection:next_event(cipher, no_record,
+                              State#state{handshake_env = HsEnv,
+                                          session = Session0#session{sign_alg = HashSign}})
+    else
+        #alert{} = Alert ->
             throw(Alert)
     end;
 wait_cert_verify({call, From}, Msg, State) ->
@@ -273,6 +284,7 @@ cipher(internal, #finished{verify_data = Data} = Finished,
                                        port = Port,
                                        trackers = Trackers},
               handshake_env = #handshake_env{tls_handshake_history = Hist,
+                                             sni_hostname = SNIHostname,
                                              expecting_finished = true},
               connection_env = #connection_env{negotiated_version = Version},
 	      session = #session{master_secret = MasterSecret}
@@ -286,7 +298,8 @@ cipher(internal, #finished{verify_data = Data} = Finished,
 					 SecParams#security_parameters.prf_algorithm,
 					 MasterSecret, Hist) of
         verified ->
-	    Session = maybe_register_session(SslOpts, Host, Port, Trackers, Session0),
+	    Session = maybe_register_session(SslOpts, SNIHostname, Host, Port,
+                                             Trackers, Session0),
             ConnectionStates1 = ssl_record:set_client_verify_data(current_read, Data,
                                                                   ConnectionStates0),
             {State1, Actions} =
@@ -810,12 +823,14 @@ generate_srp_server_keys(SrpParams =
     end.
 
 maybe_register_session(#{reuse_sessions := true},
-                       _Host, _Port, Trackers, #session{is_resumable = false} = Session0) ->
+                       SNIHostname, _Host, _Port, Trackers,
+                       #session{is_resumable = false} = Session0) ->
     Tracker = proplists:get_value(session_id_tracker, Trackers),
-    Session = Session0#session{is_resumable = true},
+    Session = Session0#session{is_resumable = true,
+                               sni = SNIHostname},
     ssl_server_session_cache:register_session(Tracker, Session),
     Session;
-maybe_register_session(_,_,_,_, Session) ->
+maybe_register_session(_, _, _, _, _, Session) ->
     Session.
 
 ext_info(OcspState, _, #cert{otp=PeerCert}) ->

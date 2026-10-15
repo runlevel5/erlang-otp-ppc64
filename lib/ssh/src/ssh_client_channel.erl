@@ -184,7 +184,7 @@ The following message is taken care of by the `ssh_client_channel` behavior.
 	 terminate/2, code_change/3]).
 
 %% Internal application API
--export([cache_create/0, cache_lookup/2, cache_update/2,
+-export([cache_create/0, cache_lookup/2, cache_insert/3, cache_update/2,
 	 cache_delete/1, cache_delete/2, cache_foldl/3,
 	 cache_info/2, get_print_info/1, get_print_info/2
         ]).
@@ -457,8 +457,14 @@ handle_call(Request, From, #state{channel_cb = Module,
        Result ->
 	   handle_cb_result(Result, State)
    catch
-       error:{undef, _} -> 
-	   {noreply, State}
+       error:undef = Reason:Stacktrace ->
+           case erlang:function_exported(Module, handle_call, 3) of
+               false ->
+                   {noreply, State};      % optional callback not implemented
+               true ->
+                   %% undef from deeper in the callback — don't mask it
+                   erlang:raise(error, Reason, Stacktrace)
+           end
    end.
 
 
@@ -476,8 +482,14 @@ handle_cast(Msg, #state{channel_cb = Module,
 	Result ->
 	    handle_cb_result(Result, State)
     catch
-       error:{undef, _} -> 
-	    {noreply, State}
+       error:undef = Reason:Stacktrace ->
+           case erlang:function_exported(Module, handle_cast, 2) of
+               false ->
+                   {noreply, State};      % optional callback not implemented
+               true ->
+                   %% undef from deeper in the callback — don't mask it
+                   erlang:raise(error, Reason, Stacktrace)
+           end
    end.
 
 %%--------------------------------------------------------------------
@@ -513,6 +525,12 @@ handle_info({ssh_cm, _, _} = Msg, #state{channel_cb = Module,
         error:_ ->
             do_the_close(Msg, State#state.channel_id, State)
     end;
+
+handle_info({ssh_channel_handler_replaced, ConnectionManager},
+            #state{cm = ConnectionManager} = State) ->
+    %% The channel handler process was replaced with another one.
+    %% Set close_sent = true, so that we don't close the channel itself
+    {stop, normal, State#state{close_sent = true}};
 
 handle_info(Msg, #state{channel_cb = Module, 
 			channel_state = ChannelState0} = State) -> 
@@ -585,6 +603,21 @@ cache_lookup(Cache, Key) ->
     end.
 
 -doc false.
+cache_insert(Cache, #channel{local_id = Id} = Entry, infinity) when Id =/= undefined ->
+    true = ets:insert_new(Cache, Entry),
+    ok;
+cache_insert(Cache, #channel{local_id = Id} = Entry, Limit) when Id =/= undefined,
+                                                                 is_integer(Limit),
+                                                                 Limit > 0 ->
+    case cache_info(num_entries, Cache) of
+        Num when Num >= Limit ->
+            {error, max_num_channels_exceeded};
+        _Num ->
+            true = ets:insert_new(Cache, Entry),
+            ok
+    end.
+
+-doc false.
 cache_update(Cache, #channel{local_id = Id} = Entry) when Id =/= undefined ->
     ets:insert(Cache, Entry).
 
@@ -602,7 +635,7 @@ cache_foldl(Fun, Acc, Cache) ->
     
 -doc false.
 cache_info(num_entries, Cache) ->
-    proplists:get_value(size, ets:info(Cache)).
+    ets:info(Cache, size).
 
 -doc false.
 get_print_info(Pid) ->
