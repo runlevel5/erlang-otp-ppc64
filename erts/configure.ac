@@ -3114,9 +3114,29 @@ AS_IF([test ${enable_jit} != no],
            esac
            ;;
         ppc64)
-           # The PPC64 JIT is not ready for big-endian systems, so it is only
-           # enabled there when explicitly asked for.
-           if test ${enable_jit} = yes; then
+           # The JIT calls C functions the way that the ELFv2 ABI prescribes,
+           # and does not know about the function descriptors of the older
+           # ABI that many big-endian systems use.
+           AC_MSG_CHECKING([whether the ELFv2 ABI is used])
+           AC_COMPILE_IFELSE(
+              [AC_LANG_PROGRAM([[]],
+               [[#if !defined(_CALL_ELF) || _CALL_ELF != 2
+                #error "Not the ELFv2 ABI"
+                #endif
+                ]])
+              ],
+              [ppc64_elfv2=yes],
+              [ppc64_elfv2=no])
+           AC_MSG_RESULT([$ppc64_elfv2])
+           if test $ppc64_elfv2 = no; then
+             if test ${enable_jit} = yes; then
+               AC_MSG_ERROR([JIT on big-endian PowerPC requires the ELFv2 ABI])
+             else
+               enable_jit=no
+             fi
+           elif test ${enable_jit} = yes; then
+             # The PPC64 JIT is not ready for big-endian systems, so it is
+             # only enabled there when explicitly asked for.
              JIT_ARCH=ppc
            else
              enable_jit=no
