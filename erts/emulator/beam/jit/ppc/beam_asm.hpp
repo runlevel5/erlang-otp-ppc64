@@ -216,6 +216,14 @@ protected:
         return ppc::Mem(scheduler_registers, offset);
     }
 
+    /* Returns the number of a floating point register.
+     *
+     * The loader hands us the number multiplied by the size of a register,
+     * as the interpreter wants it. */
+    static constexpr int getFIndex(const ArgVal &arg) {
+        return arg.as<ArgFRegister>().get() / sizeof(FloatDef);
+    }
+
     constexpr ppc::Mem getFRef(int index, size_t size = sizeof(UWord)) const {
         int base = offsetof(ErtsSchedulerRegisters, f_reg_array.d);
         int offset = index * sizeof(FloatDef);
@@ -393,7 +401,7 @@ protected:
             return getYRef(arg.as<ArgYRegister>().get());
         }
 
-        return getFRef(arg.as<ArgFRegister>().get());
+        return getFRef(getFIndex(arg));
     }
 
     /* Returns the current code address for the `Export` or `ErlFunEntry` in
@@ -1648,7 +1656,7 @@ protected:
         if (arg.isXRegister()) {
             return arg.as<ArgXRegister>().get() < num_register_backed_xregs;
         } else if (arg.isFRegister()) {
-            return arg.as<ArgFRegister>().get() < num_register_backed_fregs;
+            return getFIndex(arg) < num_register_backed_fregs;
         }
 
         return false;
@@ -1676,7 +1684,7 @@ protected:
 
     Variable<ppc::Vec> init_destination(const ArgVal &arg, ppc::Vec tmp) {
         if (isRegisterBacked(arg)) {
-            auto index = arg.as<ArgFRegister>().get();
+            auto index = getFIndex(arg);
             return Variable(register_backed_fregs[index]);
         } else {
             return Variable(tmp, getArgRef(arg));
@@ -1762,7 +1770,7 @@ protected:
 
     Variable<ppc::Vec> load_source(const ArgVal &arg, ppc::Vec tmp) {
         if (isRegisterBacked(arg)) {
-            auto index = arg.as<ArgFRegister>().get();
+            auto index = getFIndex(arg);
             return Variable<ppc::Vec>(register_backed_fregs[index]);
         }
 
