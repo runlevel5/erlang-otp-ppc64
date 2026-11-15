@@ -611,24 +611,23 @@ void BeamGlobalAssembler::emit_mul_guard_shared() {
  * Src3 is only included to carry type information about Src1 * Src2 that the
  * compiler has produced. It is not used in the actual instruction.
  *
- * The instruction performs a multiplication only when Src4 is a small
- * zero.
+ * Src4 is optional. If it is not present, the instruction will perform a
+ * multiplication only. We signal that it is not to be used by setting it to
+ * a Word in ops.tab
  */
 void BeamModuleAssembler::emit_i_mul_add(const ArgLabel &Fail,
                                          const ArgSource &Src1,
                                          const ArgSource &Src2,
                                          const ArgSource &Src3,
-                                         const ArgSource &Src4,
+                                         const ArgVal &Src4,
                                          const ArgRegister &Dst) {
-    /* A multiplication without an addition has a small zero as its
-     * increment. */
-    bool is_increment_zero =
-            Src4.isSmall() && Src4.as<ArgSmall>().getSigned() == 0;
-    bool has_increment = !is_increment_zero;
+    bool has_increment = !Src4.isWord();
     bool is_product_small = is_product_small_if_args_are_small(Src1, Src2);
     bool is_sum_small =
             !has_increment || is_sum_small_if_args_are_small(Src3, Src4);
     bool sometimes_small = !(Src2.isLiteral() || Src4.isLiteral());
+    bool is_increment_zero =
+            Src4.isSmall() && Src4.as<ArgSmall>().getSigned() == 0;
     Sint factor = 0;
     int left_shift = -1;
 
