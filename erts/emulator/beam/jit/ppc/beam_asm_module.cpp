@@ -409,13 +409,26 @@ enum erts_is_line_breakpoint BeamGlobalAssembler::is_line_breakpoint_trampoline(
 
     /* The call goes through the dispatch table of the module, which in a
      * very large module is in turn reached through a veneer. Both of them
-     * are either a direct branch, or load their target from a pointer that
-     * follows them (see `emit_veneer`). */
+     * are either a direct branch, or one of the sequences that
+     * `emit_int_code_end` and `emit_veneer` emit for the processor that we
+     * are running on. */
     for (int hops = 0; hops < 3; hops++) {
         const Uint32 lnia_super_tmp = 0x4D800004;
         const Uint32 ld_super_tmp = 0xE98C0000;
         const Uint32 mtctr_super_tmp = 0x7D8903A6;
         const Uint32 bctr = 0x4E800420;
+
+        const Uint32 imm_mask = 0xFFFF0000;
+        const Uint32 lis_super_tmp = 0x3D800000;
+        const Uint32 ori_super_tmp = 0x618C0000;
+        const Uint32 sldi_32_super_tmp = 0x798C07C6;
+        const Uint32 oris_super_tmp = 0x658C0000;
+
+        const Uint32 mflr_super_tmp = 0x7D8802A6;
+        const Uint32 mtlr_super_tmp = 0x7D8803A6;
+        const Uint32 std_super_tmp_below_sp = 0xF981FFF8;
+        const Uint32 ld_super_tmp_below_sp = 0xE981FFF8;
+        const Uint32 bcl_next = 0x429F0005;
 
         if (pc == expected_target) {
             return line_bp_type;
@@ -431,6 +444,28 @@ enum erts_is_line_breakpoint BeamGlobalAssembler::is_line_breakpoint_trampoline(
             const Uint32 *target;
 
             memcpy(&target, pointer, sizeof(target));
+            pc = target;
+        } else if ((pc[0] & imm_mask) == lis_super_tmp &&
+                   (pc[1] & imm_mask) == ori_super_tmp &&
+                   pc[2] == sldi_32_super_tmp &&
+                   (pc[3] & imm_mask) == oris_super_tmp &&
+                   (pc[4] & imm_mask) == ori_super_tmp &&
+                   pc[5] == mtctr_super_tmp && pc[6] == bctr) {
+            /* See `mov_imm64_fixed`. */
+            UWord target = ((UWord)(pc[0] & 0xFFFF) << 48) |
+                           ((UWord)(pc[1] & 0xFFFF) << 32) |
+                           ((UWord)(pc[3] & 0xFFFF) << 16) |
+                           (UWord)(pc[4] & 0xFFFF);
+
+            pc = (const Uint32 *)target;
+        } else if (pc[0] == mflr_super_tmp && pc[1] == std_super_tmp_below_sp &&
+                   pc[2] == bcl_next && pc[3] == mflr_super_tmp &&
+                   pc[4] == (ld_super_tmp | sizeof(Uint32[6])) &&
+                   pc[5] == mtctr_super_tmp && pc[6] == ld_super_tmp_below_sp &&
+                   pc[7] == mtlr_super_tmp && pc[8] == bctr) {
+            const Uint32 *target;
+
+            memcpy(&target, &pc[9], sizeof(target));
             pc = target;
         } else {
             return IS_NOT_LINE_BP;
