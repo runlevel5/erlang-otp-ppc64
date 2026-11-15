@@ -958,10 +958,34 @@ void BeamModuleAssembler::emit_veneer(const Veneer &veneer) {
         Label pointer = a.new_label();
 
         /* Note that this clobbers SUPER_TMP and the count register. */
-        a.lnia(SUPER_TMP);
-        a.ld(SUPER_TMP, SUPER_TMP, pointer);
-        a.mtctr(SUPER_TMP);
-        a.bctr();
+        if (erts_jit_ppc_isa_3_0) {
+            a.lnia(SUPER_TMP);
+            a.ld(SUPER_TMP, SUPER_TMP, pointer);
+            a.mtctr(SUPER_TMP);
+            a.bctr();
+        } else {
+            Label next = a.new_label();
+
+            /* Finding out where we are overwrites the link register, which
+             * holds a return address when the veneer is used by a call or a
+             * tail call. No other register is known to be free, so we keep
+             * it in the area below the stack pointer that the ABI protects.
+             *
+             * `is_line_breakpoint_trampoline` relies on this sequence. */
+            a.mflr(SUPER_TMP);
+            a.std(SUPER_TMP, ppc::Mem(sp, -8));
+            a.bcl(imm(20), imm(31), next);
+            a.bind(next);
+            a.mflr(SUPER_TMP);
+            a.ld(SUPER_TMP, ppc::Mem(SUPER_TMP, sizeof(Uint32[6])));
+            a.mtctr(SUPER_TMP);
+            a.ld(SUPER_TMP, ppc::Mem(sp, -8));
+            a.mtlr(SUPER_TMP);
+            a.bctr();
+
+            ASSERT(a.offset() - code.label_offset_from_base(next) ==
+                   sizeof(Uint32[6]));
+        }
 
         a.bind(pointer);
         a.embed_label(veneer.target);
