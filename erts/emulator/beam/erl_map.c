@@ -670,7 +670,8 @@ Eterm erts_hashmap_from_array(ErtsHeapFactory* factory, Eterm *leafs, Uint n,
 
 /* Returns THE_NON_VALUE if duplicate keys found. */
 Eterm
-erts_map_from_ks_and_vs(ErtsHeapFactory *factory, Eterm *ks, Eterm *vs, Uint n)
+erts_map_from_ks_and_vs(ErtsHeapFactory *factory,
+                        const Eterm *ks, const Eterm *vs, Uint n)
 {
     if (n <= MAP_SMALL_MAP_LIMIT) {
         Eterm *hp;
@@ -714,7 +715,8 @@ erts_map_from_ks_and_vs(ErtsHeapFactory *factory, Eterm *ks, Eterm *vs, Uint n)
 }
 
 Eterm erts_hashmap_from_ks_and_vs_extra(ErtsHeapFactory *factory,
-                                        Eterm *ks, Eterm *vs, Uint n,
+                                        const Eterm *ks, const Eterm *vs,
+                                        Uint n,
                                         Eterm key, Eterm value,
                                         int reject_dupkeys) {
     erts_ihash_t sw, hx;
@@ -1295,7 +1297,7 @@ static Eterm flatmap_merge(Process *p, Eterm map1, Eterm map2) {
     n1   = flatmap_get_size(mp1);
     n2   = flatmap_get_size(mp2);
 
-    if (n1 == 0) return map2;
+    if (n1 == 0 || mp1->keys == mp2->keys) return map2;
     if (n2 == 0) return map1;
 
     need = MAP_HEADER_FLATMAP_SZ + 1 + 2 * (n1 + n2);
@@ -3231,8 +3233,8 @@ void erts_usort_flatmap(flatmap_t* mp)
 	while( jx > 0 && (c = erts_cmp_flatmap_keys(ks[jx],ks[jx-1])) <= 0 ) {
 	    /* identical key -> remove it */
 	    if (c == 0) {
-                sys_memmove(ks+jx-1,ks+jx,(sz-ix)*sizeof(Eterm));
-                sys_memmove(vs+jx-1,vs+jx,(sz-ix)*sizeof(Eterm));
+                sys_memmove(ks+jx-1,ks+jx,(sz-jx)*sizeof(Eterm));
+                sys_memmove(vs+jx-1,vs+jx,(sz-jx)*sizeof(Eterm));
                 sz--;
                 ix--;
                 break;

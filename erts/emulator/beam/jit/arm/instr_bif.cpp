@@ -511,6 +511,14 @@ void BeamGlobalAssembler::emit_call_light_bif_shared() {
              * Otherwise, set the flags as if it is to force a GC. */
             a.ccmp(TMP1, TMP2, imm(NZCV::kVF), imm(arm::CondCode::kLS));
             a.b_lt(gc_after_bif_call);
+
+            /* No GC is needed, so a saved live_hf_end marker is no longer
+             * valid. Clear it unless it is already cleared. */
+            a.ldr(TMP1, a64::Mem(c_p, offsetof(Process, live_hf_end)));
+            mov_imm(TMP2, (UWord)ERTS_INVALID_HFRAG_PTR);
+            a.cmp(TMP1, TMP2);
+            a.b_eq(check_bif_return);
+            a.str(TMP2, a64::Mem(c_p, offsetof(Process, live_hf_end)));
         }
 
         a.bind(check_bif_return);
@@ -840,7 +848,7 @@ void BeamModuleAssembler::emit_call_bif_mfa(const ArgAtom &M,
 
 void BeamGlobalAssembler::emit_call_nif_early() {
     a.mov(ARG2, a64::x30);
-    a.sub(ARG2, ARG2, imm(BEAM_ASM_FUNC_PROLOGUE_SIZE + sizeof(ErtsCodeInfo)));
+    a.sub(ARG2, ARG2, imm(BEAM_ASM_BP_RETURN_OFFSET + sizeof(ErtsCodeInfo)));
 
     emit_enter_runtime();
 

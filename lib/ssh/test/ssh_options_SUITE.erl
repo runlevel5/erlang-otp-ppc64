@@ -62,6 +62,8 @@
 	 server_userpassword_option/1, 
 	 server_userpassword_timing/0,
 	 server_userpassword_timing/1,
+         server_passwd_checker_input_types/0,
+         server_passwd_checker_input_types/1,
 	 server_pubkey_timing/1,
 	 server_pwdfun_option/1,
 	 server_pwdfun_4_option/1,
@@ -101,7 +103,11 @@
          daemon_replace_options_not_found/1,
          daemon_loopback_binding/1,
          pk_check_user_option/1,
-         pwdfun_lockout_ets/1
+         pwdfun_lockout_ets/1,
+         max_auth_request_size_large_enough/1,
+         max_auth_request_size_too_small/1,
+         max_auth_request_size_invalid_option/1,
+         max_auth_tries_option/1
 	]).
 
 %%% Common test callbacks
@@ -132,6 +138,7 @@ all() ->
      server_password_option,
      server_userpassword_option,
      server_userpassword_timing,
+     server_passwd_checker_input_types,
      server_pubkey_timing,
      server_pwdfun_option,
      server_pwdfun_4_option,
@@ -176,7 +183,9 @@ all() ->
      daemon_replace_options_algs_connect,
      daemon_replace_options_algs_conf_file,
      daemon_replace_options_not_found,
-     {group, hardening_tests}
+     {group, hardening_tests},
+     {group, max_auth_request_size},
+     {group, max_auth_tries}
     ].
 
 groups() ->
@@ -197,7 +206,11 @@ groups() ->
 			   ]},
      {dir_options, [], [user_dir_option,
                         user_dir_fun_option,
-			system_dir_option]}
+                        system_dir_option]},
+     {max_auth_request_size, [], [max_auth_request_size_large_enough,
+                                  max_auth_request_size_too_small,
+                                  max_auth_request_size_invalid_option]},
+     {max_auth_tries, [], [max_auth_tries_option]}
     ].
 
 
@@ -205,7 +218,8 @@ groups() ->
 init_per_suite(Config) ->
     ?CHECK_CRYPTO(Config).
 
-end_per_suite(_Config) ->
+end_per_suite(Config) ->
+    ssh_test_lib:clean_all_user_host_keys(Config),
     ssh:stop().
 
 %%--------------------------------------------------------------------
@@ -1221,7 +1235,7 @@ ssh_connect_arg4_timeout(_Config) ->
     receive
 	{done, Client, {error,timeout}, T0} ->
 	    Msp = ms_passed(T0),
-	    exit(Server,hasta_la_vista___baby),
+            exit_signal(Server,hasta_la_vista___baby),
 	    Low = 0.9*Timeout,
 	    High =  4.0*Timeout,
 	    ct:log("Timeout limits: ~.4f - ~.4f ms, timeout "
@@ -1239,8 +1253,8 @@ ssh_connect_arg4_timeout(_Config) ->
 	    {fail,"ssh-connected ???"}
     after
 	5000 ->
-	    exit(Server,hasta_la_vista___baby),
-	    exit(Client,hasta_la_vista___baby),
+            exit_signal(Server,hasta_la_vista___baby),
+            exit_signal(Client,hasta_la_vista___baby),
 	    {fail, "Didn't timeout"}
     end.
 
@@ -1451,7 +1465,7 @@ ssh_connect_nonegtimeout_connected(Config, Parallel) ->
     after 
 	10000 -> ct:fail("timeout ~p:~p",[?MODULE,?LINE])
     end,
-    exit(Shell, kill).
+    exit_signal(Shell, kill).
 
 
 one_shell_op(IO, TimeOut) ->
@@ -2138,6 +2152,68 @@ daemon_replace_options_not_found(_Config) ->
     Error = ssh:daemon_info(self()),
     Error = ssh:daemon_replace_options(self(), []).
 
+
+%%--------------------------------------------------------------------
+%%% Test that a normal-sized auth request succeeds with an explicit large limit
+max_auth_request_size_large_enough(Config) when is_list(Config) ->
+    UserDir = proplists:get_value(user_dir, Config),
+    SysDir = proplists:get_value(data_dir, Config),
+    %% Set a large enough limit that normal auth requests pass through
+    {Pid, Host, Port} = ssh_test_lib:daemon([{system_dir, SysDir},
+                                             {user_dir, UserDir},
+                                             {password, "morot"},
+                                             {max_auth_request_size, 1024},
+                                             {failfun, fun ssh_test_lib:failfun/2}]),
+
+    ConnectionRef =
+        ssh_test_lib:connect(Host, Port, [{silently_accept_hosts, true},
+                                          {user, "foo"},
+                                          {password, "morot"},
+                                          {user_interaction, false},
+                                          {user_dir, UserDir}]),
+    ssh:close(ConnectionRef),
+    ssh:stop_daemon(Pid).
+
+%%--------------------------------------------------------------------
+%%% Test that a normal-sized auth request is rejected when max_auth_request_size
+%%% is set to small value
+max_auth_request_size_too_small(Config) when is_list(Config) ->
+    UserDir = proplists:get_value(user_dir, Config),
+    SysDir = proplists:get_value(data_dir, Config),
+    %% Set a very small limit so that even a normal password auth request
+    %% exceeds the max_auth_request_size and the server disconnects
+    {Pid, Host, Port} = ssh_test_lib:daemon([{system_dir, SysDir},
+                                             {user_dir, UserDir},
+                                             {password, "morot"},
+                                             {max_auth_request_size, 1},
+                                             {failfun, fun ssh_test_lib:failfun/2}]),
+
+    {error, "Auth length exceeded."} =
+        ssh:connect(Host, Port, [{silently_accept_hosts, true},
+                                 {save_accepted_host, false},
+                                 {user, "foo"},
+                                 {password, "morot"},
+                                 {user_interaction, false},
+                                 {user_dir, UserDir}]),
+    ssh:stop_daemon(Pid).
+
+%%--------------------------------------------------------------------
+%%% Test that the option validation rejects invalid max_auth_request_size values
+max_auth_request_size_invalid_option(Config) when is_list(Config) ->
+    SysDir = proplists:get_value(data_dir, Config),
+    %% zero value should be rejected
+    {error, {eoptions, _}} = ssh:daemon(0, [{system_dir, SysDir},
+                                            {max_auth_request_size, 0}]),
+    %% Negative value should be rejected
+    {error, {eoptions, _}} = ssh:daemon(0, [{system_dir, SysDir},
+                                            {max_auth_request_size, -1}]),
+    %% Non-integer value should be rejected
+    {error, {eoptions, _}} = ssh:daemon(0, [{system_dir, SysDir},
+                                            {max_auth_request_size, "not_an_integer"}]),
+    %% Atom value should be rejected
+    {error, {eoptions, _}} = ssh:daemon(0, [{system_dir, SysDir},
+                                            {max_auth_request_size, infinity}]).
+
 %%--------------------------------------------------------------------
 daemon_loopback_binding(Config) ->
     %% Verify that daemon/3 with loopback binds to loopback address
@@ -2258,6 +2334,20 @@ pwdfun_lockout_ets(Config) ->
     ssh:stop_daemon(Pid).
 
 %%--------------------------------------------------------------------
+max_auth_tries_option(_Config) ->
+    %% Valid values accepted
+    #{max_auth_tries := 3} = ssh_options:handle_options(server, [{max_auth_tries, 3}]),
+    #{max_auth_tries := 1} = ssh_options:handle_options(server, [{max_auth_tries, 1}]),
+    %% infinity disables the limit
+    #{max_auth_tries := infinity} = ssh_options:handle_options(server, [{max_auth_tries, infinity}]),
+    %% Default value is 6
+    #{max_auth_tries := 6} = ssh_options:handle_options(server, []),
+    %% Bad values rejected
+    {error, {eoptions, _}} = ssh_options:handle_options(server, [{max_auth_tries, 0}]),
+    {error, {eoptions, _}} = ssh_options:handle_options(server, [{max_auth_tries, -1}]),
+    {error, {eoptions, _}} = ssh_options:handle_options(server, [{max_auth_tries, foo}]).
+
+%%--------------------------------------------------------------------
 %% Internal functions ------------------------------------------------
 %%--------------------------------------------------------------------
 
@@ -2336,6 +2426,44 @@ test_not_connect(Config, Host, Port, Opts) ->
         error:{badmatch, {error,_}} -> ok
     end.
 
+
+%%--------------------------------------------------------------------
+%% The fake password checker (used for unknown users) must behave like
+%% a real checker for every password input, so that the result does not
+%% reveal whether a user exists (GHSA-3w6p-vwhf-wvp4). Non-UTF-8 input
+%% must not raise in either checker.
+server_passwd_checker_input_types() ->
+    [{timetrap, {seconds, 60 * ssh_test_lib:timetrap_scale()}}].
+
+server_passwd_checker_input_types(Config) when is_list(Config) ->
+    #{user_passwords := [{"alice", Real}],
+      internal_options := #{fake_passwd_checker := Fake}} =
+        ssh_options:handle_options(server,
+                                   [{user_passwords, [{"alice", "s3cret"}]}]),
+    %% Correct password: only the real checker accepts it
+    true = Real(<<"s3cret">>),
+    true = Real("s3cret"),
+    false = Fake(<<"s3cret">>),
+    %% Anything else: both return false and none raises
+    Inputs = [<<"wrong">>,               % valid UTF-8 binary (wire format)
+              "wrong",                   % list
+              <<>>, "",                  % empty
+              <<255>>,                   % invalid UTF-8
+              <<$a, 16#c3>>,             % truncated UTF-8 sequence
+              [16#110000],               % code point out of range
+              [-1],                      % not a character
+              pubkey, 42],               % not a password at all
+    [begin
+         R = {try_check(Real, In), try_check(Fake, In)},
+         ?CT_LOG("~w -> {real, fake} = ~p", [In, R]),
+         {false, false} = R
+     end || In <- Inputs],
+    ok.
+
+try_check(Checker, In) ->
+    try Checker(In)
+    catch Class:Reason -> {Class, Reason}
+    end.
 
 %%--------------------------------------------------------------------
 %% Verify that password auth timing does not reveal username validity.

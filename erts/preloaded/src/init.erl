@@ -47,7 +47,6 @@
 %%        -profile_boot    : Use an 'eprof light' to profile boot sequence
 %%        -init_debug      : Activate debug printouts in init
 %%        -loader_debug    : Activate debug printouts in erl_prim_loader
-%%        -code_path_choice : strict | relaxed
 
 -module(init).
 -moduledoc """
@@ -69,28 +68,10 @@ system. For more information about boot scripts, see
 
 ## Command-Line Flags
 
-> #### Warning {: .warning }
->
-> The support for loading of code from archive files is experimental. The only
-> purpose of releasing it before it is ready is to obtain early feedback. The
-> file format, semantics, interfaces, and so on, can be changed in a future
-> release.
-
 The `init` module interprets the following command-line flags:
 
 - **`--`** - Everything following `--` up to the next flag is considered plain
   arguments and can be retrieved using `get_plain_arguments/0`.
-
-- **`-code_path_choice Choice`** - Can be set to `strict` or `relaxed`. It
-  controls how each directory in the code path is to be interpreted:
-
-  - Strictly as it appears in the `boot script`, or
-  - `init` is to be more relaxed and try to find a suitable directory if it can
-    choose from a regular `ebin` directory and an `ebin` directory in an archive
-    file.
-
-  It defaults to `strict` from OTP 27 and this option is scheduled for removal
-  in OTP 28.
 
 - **`-epmd_module Module`** - This flag is deprecated and has been replaced by
   the `kernel` application parameter [`epmd_module`](`e:kernel:kernel_app.md#epmd_module`).
@@ -255,7 +236,8 @@ error
 """.
 
 -compile([{nowarn_possibly_unsafe_function, {erlang, list_to_atom, 1}},
-          {nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}}]).
+          {nowarn_possibly_unsafe_function, {erlang, binary_to_term, 1}},
+          {nowarn_deprecated_function, [{erlang,exit,2}]}]).
 
 -export([restart/1,restart/0,reboot/0,stop/0,stop/1,
 	 get_status/0,boot/1,get_arguments/0,get_plain_arguments/0,
@@ -265,9 +247,9 @@ error
 -export([run_on_load_handlers/0]).
 
 %% internal exports
--export([fetch_loaded/0,ensure_loaded/1,make_permanent/2,
+-export([fetch_loaded/0,ensure_loaded/1,ensure_modules_loaded/1,make_permanent/2,
 	 notify_when_started/1,wait_until_started/0, 
-	 objfile_extension/0, archive_extension/0,code_path_choice/0,
+         objfile_extension/0,
          get_configfd/1, set_configfd/2]).
 
 -include_lib("kernel/include/file.hrl").
@@ -297,7 +279,6 @@ error
 	 path,
 	 pa,
 	 pz,
-	 path_choice,
 	 prim_load,
 	 load_mode,
 	 vars
@@ -459,9 +440,14 @@ fetch_loaded() ->
 %% Handle dynamic code loading until the
 %% real code_server has been started.
 -doc false.
--spec ensure_loaded(atom()) -> 'not_allowed' | {'module', atom()}.
+-spec ensure_loaded(module()) -> 'error' | {'module', module()}.
 ensure_loaded(Module) ->
     request({ensure_loaded, Module}).
+
+-doc false.
+-spec ensure_modules_loaded([module()]) -> 'ok'.
+ensure_modules_loaded(Modules) ->
+    request({ensure_modules_loaded, Modules}).
 
 -doc false.
 -spec make_permanent(file:filename(), 'false' | file:filename()) ->
@@ -641,18 +627,6 @@ map(_F, []) ->
 map(F, [X|Rest]) ->
     [F(X) | map(F, Rest)].
 
--doc false.
--spec code_path_choice() -> 'relaxed' | 'strict'.
-code_path_choice() ->
-    case get_argument(code_path_choice) of
-	{ok,[["strict"]]} ->
-	    strict;
-	{ok,[["relaxed"]]} ->
-	    relaxed;
-	_Else ->
-	    strict
-    end.
-
 boot(Start,Flags,Args) ->
     start_on_load_handler_process(),
     BootPid = do_boot(Flags,Start),
@@ -723,6 +697,10 @@ boot_loop(BootPid, State) ->
 	    {Res, Loaded} = ensure_loaded(Module, State#state.loaded),
 	    From ! {init,Res},
 	    boot_loop(BootPid,State#state{loaded = Loaded});
+        {From,{ensure_modules_loaded,Modules}} ->
+            Loaded = ensure_modules_loaded(Modules, State#state.loaded),
+            From ! {init, ok},
+            boot_loop(BootPid,State#state{loaded = Loaded});
 	Msg ->
 	    boot_loop(BootPid,handle_msg(Msg,State))
     end.
@@ -1154,7 +1132,16 @@ kernel_pid(Pid,[_|T]) ->
 kernel_pid(_,_) ->
     false.
 
-sleep(T) -> receive after T -> ok end.
+sleep(T) ->
+    T0 = erlang:monotonic_time(millisecond),
+    receive
+        {From, {ensure_loaded, Module}} ->
+            {Res, _Loaded} = ensure_loaded(Module, []),
+            From ! {init, Res},
+            sleep(max(0, T - (erlang:monotonic_time(millisecond) - T0)))
+    after T ->
+            ok
+    end.
 
 %%% -------------------------------------------------
 %%% Start the loader. 
@@ -1207,9 +1194,7 @@ do_boot(Init,Flags,Start) ->
     catch ?ON_LOAD_HANDLER ! {init_debug_flag,Deb},
     BootVars = get_boot_vars(Root, Flags),
 
-    PathChoice = code_path_choice(),
     Es = #es{init=Init,debug=Deb,path=Path,pa=Pa,pz=Pz,
-	     path_choice=PathChoice,
 	     prim_load=true,load_mode=LoadMode,
 	     vars=BootVars},
     eval_script(BootList, Es),
@@ -1321,12 +1306,10 @@ eval_script([{progress,Info}=Progress|T], #es{debug=Deb}=Es) ->
 eval_script([{preLoaded,_}|T], #es{}=Es) ->
     eval_script(T, Es);
 eval_script([{path,Path}|T], #es{path=false,pa=Pa,pz=Pz,
-				 path_choice=PathChoice,
 				 vars=Vars,debug=Deb}=Es) ->
     debug(Deb, {path,Path},
           fun() ->
-                  RealPath0 = make_path(Pa, Pz, Path, Vars),
-                  RealPath = patch_path(RealPath0, PathChoice),
+                  RealPath = make_path(Pa, Pz, Path, Vars),
                   erl_prim_loader:set_path(RealPath)
           end),
     eval_script(T, Es);
@@ -1339,7 +1322,10 @@ eval_script([{primLoad,Mods}|T], #es{init=Init,prim_load=PrimLoad,debug=Deb}=Es)
   when is_list(Mods) ->
     case PrimLoad of
 	true ->
-	    debug(Deb, {primLoad,Mods}, fun() -> load_modules(Mods, Init) end);
+            debug(Deb, {primLoad,Mods},
+                  fun() ->
+                          Init ! {self(), loaded, ensure_modules_loaded(Mods, [])}
+                  end);
 	false ->
 	    %% Do not load now, code_server does that dynamically!
 	    ok
@@ -1357,55 +1343,23 @@ eval_script([], #es{}) ->
 eval_script(What, #es{}) ->
     exit({'unexpected command in bootfile',What}).
 
-load_modules(Mods0, Init) ->
-    Mods = [M || M <- Mods0, not erlang:module_loaded(M)],
-    F = prepare_loading_fun(),
+ensure_modules_loaded(Mods, Loaded) ->
+    ModsToLoad = [M || M <- Mods, not erlang:module_loaded(M)],
     case has_small_memory() of
         true ->
-            %% Load one module at the time to reduce the peak memory
-            %% usage.
-            _ = [do_load_modules([M], F, Init) || M <- Mods],
-            ok;
+            %% Load one module at the time to reduce the peak memory usage.
+            [Info || M <- ModsToLoad, Info <- do_load_modules([M])] ++ Loaded;
         false ->
             %% Load the modules in parallel.
-            do_load_modules(Mods, F, Init)
+            do_load_modules(ModsToLoad) ++ Loaded
     end.
 
-do_load_modules(Mods, F, Init) ->
-    case erl_prim_loader:get_modules(Mods, F) of
-	{ok,{Prep0,[]}} ->
-	    Prep = [Code || {_,{prepared,Code,_}} <- Prep0],
-	    ok = erlang:finish_loading(Prep),
-	    Loaded = [{Mod,Full} || {Mod,{_,_,Full}} <- Prep0],
-	    Init ! {self(),loaded,Loaded},
-	    Beams = [{M,Beam,Full} || {M,{on_load,Beam,Full}} <- Prep0],
-	    load_rest(Beams, Init);
-	{ok,{_,[_|_]=Errors}} ->
-	    Ms = [M || {M,_} <- Errors],
-	    exit({load_failed,Ms})
-    end.
-
-load_rest([{Mod,Beam,Full}|T], Init) ->
-    do_load_module(Mod, Beam),
-    Init ! {self(),loaded,[{Mod,Full}]},
-    load_rest(T, Init);
-load_rest([], _) ->
-    ok.
-
-prepare_loading_fun() ->
-    fun(Mod, FullName, Beam) ->
-	    case erlang:prepare_loading(Mod, Beam) of
-		{error,_}=Error ->
-		    Error;
-		Prepared ->
-		    case erlang:has_prepared_code_on_load(Prepared) of
-			true ->
-			    {ok,{on_load,Beam,FullName}};
-			false ->
-			    {ok,{prepared,Prepared,FullName}}
-		    end
-	    end
-    end.
+do_load_modules(Mods) ->
+    {ok,{Prep0,[]}} = erl_prim_loader:get_modules(Mods, prepare_loading_fun()),
+    Prep = [Code || {_,{prepared,Code,_}} <- Prep0],
+    ok = erlang:finish_loading(Prep),
+    _ = [do_load_module(Mod, Beam) || {Mod,{on_load, Beam, _Full}} <- Prep0],
+    [{Mod,Full} || {Mod,{_,_,Full}} <- Prep0].
 
 has_small_memory() ->
     %% Heuristic for small memory. If true, we'll try to preserve
@@ -1413,6 +1367,21 @@ has_small_memory() ->
     (erlang:system_info(wordsize) =:= 4 andalso
      erlang:system_info(schedulers_online) =:= 1) orelse
         erlang:system_info(debug_compiled).
+
+prepare_loading_fun() ->
+    fun(Mod, FullName, Beam) ->
+            case erlang:prepare_loading(Mod, Beam) of
+                {error,_}=Error ->
+                    Error;
+                Prepared ->
+                    case erlang:has_prepared_code_on_load(Prepared) of
+                        true ->
+                            {ok,{on_load,Beam,FullName}};
+                        false ->
+                            {ok,{prepared,Prepared,FullName}}
+                    end
+            end
+    end.
 
 make_path(Pa, Pz, Path, Vars) ->
     append([Pa,append([fix_path(Path,Vars),Pz])]).
@@ -1446,72 +1415,6 @@ add_var(Path, _) ->
 extract_var([$/|Path],Var) -> {reverse(Var),Path};
 extract_var([H|T],Var)     -> extract_var(T,[H|Var]);
 extract_var([],Var)        -> {reverse(Var),[]}.
-
-patch_path(Dirs, strict) ->
-    Dirs;
-patch_path(Dirs, relaxed) ->
-    ArchiveExt = archive_extension(),
-    [patch_dir(Dir, ArchiveExt) || Dir <- Dirs].
-
-patch_dir(Orig, ArchiveExt) ->
-    case funny_split(Orig, $/) of
-	["nibe", RevApp, RevArchive | RevTop] ->
-	    App = reverse(RevApp),
-	    case funny_splitwith(RevArchive, $.) of
-		{Ext, Base} when Ext =:= ArchiveExt, Base =:= App ->
-		    %% Orig archive
-		    Top = reverse([reverse(C) || C <- RevTop]),
-		    Dir = join(Top ++ [App, "ebin"], "/"),
-		    Archive = Orig;
-		_ ->
-		    %% Orig directory
-		    Top = reverse([reverse(C) || C <- [RevArchive | RevTop]]),
-		    Archive = join(Top ++ [App ++ ArchiveExt, App, "ebin"], "/"),
-		    Dir = Orig
-	    end,
-	    %% First try dir, second try archive and at last use orig if both fails
-	    case erl_prim_loader:read_file_info(Dir) of
-		{ok, #file_info{type = directory}} ->
-		    Dir;
-		_ ->
-		    case erl_prim_loader:read_file_info(Archive) of
-			{ok, #file_info{type = directory}} ->
-			    Archive;
-			_ ->
-			    Orig
-		    end
-	    end;
-	_ ->
-	    Orig
-    end.
-
-%% Returns all lists in reverse order
-funny_split(List, Sep) ->
-   funny_split(List, Sep, [], []).
-
-funny_split([Sep | Tail], Sep, Path, Paths) ->
-    funny_split(Tail, Sep, [], [Path | Paths]);
-funny_split([Head | Tail], Sep, Path, Paths) ->
-    funny_split(Tail, Sep, [Head | Path], Paths);
-funny_split([], _Sep, Path, Paths) ->
-    [Path | Paths].
-
-%% Returns {BeforeSep, AfterSep} where BeforeSep is in reverse order
-funny_splitwith(List, Sep) ->
-    funny_splitwith(List, Sep, [], List).
-
-funny_splitwith([Sep | Tail], Sep, Acc, _Orig) ->
-    {Acc, Tail};
-funny_splitwith([Head | Tail], Sep, Acc, Orig) ->
-    funny_splitwith(Tail, Sep, [Head | Acc], Orig);
-funny_splitwith([], _Sep, _Acc, Orig) ->
-    {[], Orig}.
-
--spec join([string()], string()) -> string().
-join([H1, H2 | T], S) ->
-    H1 ++ S ++ join([H2 | T], S);
-join([H], _) ->
-    H.
 
 %% Servers that are located in the init kernel are linked
 %% and supervised by init.
@@ -1848,10 +1751,6 @@ objfile_extension() ->
 %%      "BEAM" -> ".beam"
 %%    end.
 
--doc false.
--spec archive_extension() -> nonempty_string().
-archive_extension() ->
-    ".ez".
 
 %%%
 %%% Support for handling of on_load functions.

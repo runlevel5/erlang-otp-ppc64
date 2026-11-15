@@ -143,15 +143,12 @@ INLINE= \
 	receive \
 	record
 
-R26= \
-	bs_construct \
-	bs_match \
-	bs_utf \
-	bs_bincomp
-
 COVER=$(NO_OPT)
 
 DIALYZER = bs_match
+
+R29= \
+        native_record
 
 CORE_MODULES = \
 	lfe_andor_SUITE \
@@ -175,8 +172,6 @@ NO_CORE_SSA_OPT_MODULES= $(NO_OPT:%=%_no_copt_ssa_SUITE)
 NO_CORE_SSA_OPT_ERL_FILES= $(NO_CORE_SSA_OPT_MODULES:%=%.erl)
 INLINE_MODULES= $(INLINE:%=%_inline_SUITE)
 INLINE_ERL_FILES= $(INLINE_MODULES:%=%.erl)
-R26_MODULES= $(R26:%=%_r26_SUITE)
-R26_ERL_FILES= $(R26_MODULES:%=%.erl)
 NO_MOD_OPT_MODULES= $(NO_MOD_OPT:%=%_no_module_opt_SUITE)
 NO_MOD_OPT_ERL_FILES= $(NO_MOD_OPT_MODULES:%=%.erl)
 NO_SSA_OPT_MODULES= $(NO_SSA_OPT:%=%_no_ssa_opt_SUITE)
@@ -187,6 +182,8 @@ DIALYZER_MODULES= $(DIALYZER:%=%_dialyzer_SUITE)
 DIALYZER_ERL_FILES= $(DIALYZER_MODULES:%=%.erl)
 COVER_MODULES= $(COVER:%=%_cover_SUITE)
 COVER_ERL_FILES= $(COVER_MODULES:%=%.erl)
+R29_MODULES=$(R29:%=%_r29_SUITE)
+R29_ERL_FILES=$(R29_MODULES:%=%.erl)
 
 HRL_FILES= test_lib.hrl
 ERL_FILES= $(MODULES:%=%.erl)
@@ -226,7 +223,7 @@ make_emakefile: $(NO_BOOL_OPT_ERL_FILES) $(NO_OPT_ERL_FILES) \
                 $(NO_CORE_OPT_ERL_FILES) $(NO_CORE_SSA_OPT_ERL_FILES) \
                 $(INLINE_ERL_FILES) $(NO_MOD_OPT_ERL_FILES) \
                 $(NO_TYPE_OPT_ERL_FILES) $(DIALYZER_ERL_FILES) \
-                $(COVER_ERL_FILES) $(R26_ERL_FILES)
+                $(COVER_ERL_FILES) $(R29_ERL_FILES)
 	$(ERL_TOP)/make/make_emakefile $(ERL_COMPILE_FLAGS) -o$(EBIN) $(MODULES) \
 	  > $(EMAKEFILE)
 	$(ERL_TOP)/make/make_emakefile +no_bool_opt $(ERL_COMPILE_FLAGS) \
@@ -243,8 +240,6 @@ make_emakefile: $(NO_BOOL_OPT_ERL_FILES) $(NO_OPT_ERL_FILES) \
 	  -o$(EBIN) $(NO_CORE_SSA_OPT_MODULES) >> $(EMAKEFILE)
 	$(ERL_TOP)/make/make_emakefile +inline $(ERL_COMPILE_FLAGS) \
 	  -o$(EBIN) $(INLINE_MODULES) >> $(EMAKEFILE)
-	$(ERL_TOP)/make/make_emakefile +r26 $(ERL_COMPILE_FLAGS) \
-	  -o$(EBIN) $(R26_MODULES) >> $(EMAKEFILE)
 	$(ERL_TOP)/make/make_emakefile +no_module_opt $(ERL_COMPILE_FLAGS) \
 	  -o$(EBIN) $(NO_MOD_OPT_MODULES) >> $(EMAKEFILE)
 	$(ERL_TOP)/make/make_emakefile +from_core $(ERL_COMPILE_FLAGS) \
@@ -255,6 +250,8 @@ make_emakefile: $(NO_BOOL_OPT_ERL_FILES) $(NO_OPT_ERL_FILES) \
 	  -o$(EBIN) $(COVER_MODULES) >> $(EMAKEFILE)
 	$(ERL_TOP)/make/make_emakefile +dialyzer $(ERL_COMPILE_FLAGS) \
 	  -o$(EBIN) $(DIALYZER_MODULES) >> $(EMAKEFILE)
+	$(ERL_TOP)/make/make_emakefile +r29 $(ERL_COMPILE_FLAGS) \
+	  -o$(EBIN) $(R29_MODULES) >> $(EMAKEFILE)
 
 tests $(TYPES): make_emakefile
 	erl $(ERL_MAKE_FLAGS) -make
@@ -291,9 +288,6 @@ docs:
 %_inline_SUITE.erl: %_SUITE.erl
 	sed -e 's;-module($(basename $<));-module($(basename $@));' $< > $@
 
-%_r26_SUITE.erl: %_SUITE.erl
-	sed -e 's;-module($(basename $<));-module($(basename $@));' $< > $@
-
 %_no_module_opt_SUITE.erl: %_SUITE.erl
 	sed -e 's;-module($(basename $<));-module($(basename $@));' $< > $@
 
@@ -304,6 +298,9 @@ docs:
 	sed -e 's;-module($(basename $<));-module($(basename $@));' $< > $@
 
 %_dialyzer_SUITE.erl: %_SUITE.erl
+	sed -e 's;-module($(basename $<));-module($(basename $@));' $< > $@
+
+%_r29_SUITE.erl: %_SUITE.erl
 	sed -e 's;-module($(basename $<));-module($(basename $@));' $< > $@
 
 # ----------------------------------------------------
@@ -322,12 +319,12 @@ release_tests_spec: make_emakefile
 		$(NO_OPT_ERL_FILES) \
 		$(POST_OPT_ERL_FILES) \
 		$(INLINE_ERL_FILES) \
-	        $(R26_ERL_FILES) \
 		$(NO_CORE_OPT_ERL_FILES) \
 		$(NO_CORE_SSA_OPT_ERL_FILES) \
 		$(NO_MOD_OPT_ERL_FILES) \
 		$(NO_SSA_OPT_ERL_FILES) \
 	        $(NO_TYPE_OPT_ERL_FILES) \
+		$(R29_ERL_FILES) \
 	        $(COVER_ERL_FILES) \
 	        $(DIALYZER_ERL_FILES) "$(RELSYSDIR)"
 	$(INSTALL_DATA) $(HRL_FILES) "$(RELSYSDIR)"

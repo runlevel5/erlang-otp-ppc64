@@ -27,7 +27,10 @@
          local_basic/1,local_updates/1,non_atomic_names/1,
          external_records/1,any_record/1,
          matching/1,is_record_bif/1,type_opts/1,
-         fail_label/1,sys_core_nomatch/1]).
+         recursive_lambda/1,
+         fail_label/1,sys_core_nomatch/1,
+         unsafe_get_record_field/1,
+         cerl_update_tree/1]).
 
 %% Unexported records.
 -record #empty{}.
@@ -71,13 +74,14 @@ groups() ->
        is_record_bif,
        type_opts,
        fail_label,
-       sys_core_nomatch
+       sys_core_nomatch,
+       unsafe_get_record_field,
+       cerl_update_tree
       ]}].
 
 init_per_suite(Config) ->
     id(Config),
     test_lib:recompile(?MODULE),
-    {module,ext_records} = code:ensure_loaded(ext_records),
     Config.
 
 end_per_suite(_Config) ->
@@ -125,6 +129,8 @@ local_basic(_Config) ->
     ?assertError({badrecord,ARec}, ARec#b{x=99}),
     ?assertError({badfield,{{?MODULE,b},bad_field}},
                  BRec#b{bad_field = some_value}),
+    ?assertError({badfield,{{?MODULE,b},bad_field}},
+                 (#b{})#b{bad_field = some_value}),
 
     %% Test errors when accessing native records.
     ?assertError({badfield,{{?MODULE,b},zoo}}, BRec#b.zoo),
@@ -424,6 +430,13 @@ matching(_Config) ->
     none = match_bin(#b{z = #a{x = <<0,42>>, y = 0}}),
     none = match_bin(#b{z = #a{x = 0, y = 0}}),
     none = match_bin(#b{z = #b{}}),
+
+    case #rem{} of
+        #rem{non_existing=_} ->
+            error(should_not_match);
+        #rem{} ->
+            ok
+    end,
 
     ok.
 
@@ -801,6 +814,15 @@ type_opt_ccc(A, B) ->
             ok
     end.
 
+%% cerl:update_tree/2 did not handle record and record_pair nodes.
+
+cerl_update_tree(_Config) ->
+    Pair = cerl:c_record_pair(cerl:c_atom(f), cerl:c_int(1)),
+    Pair = cerl:update_tree(Pair, cerl:subtrees(Pair)),
+    R = cerl:c_record(cerl:c_atom(rec), [Pair]),
+    R = cerl:update_tree(R, cerl:subtrees(R)),
+    ok.
+
 %% Compiler passes did not handle put_record/6 instruction with
 %% a non-zero fail label.
 fail_label(_Config) ->
@@ -815,6 +837,14 @@ ext_creation() ->
 ext_update(R) ->
     [try R#ext_records:vector{a = 1} catch _:_ -> true end].
 
+%% gh-11725: Variable substritution in `v3_core` did not look
+%% into native records.
+recursive_lambda(_Config) ->
+    recursive_lambda_1(),
+    ok.
+
+recursive_lambda_1() ->
+    fun F() -> #d{f = F} end.
 
 %% gh-11724: Crash in sys_core_fold. A nomatch warning should be
 %% emitted for `sys_core_nomatch_1/1`.
@@ -825,6 +855,17 @@ sys_core_nomatch(_Config) ->
 sys_core_nomatch_1(X) ->
     #d{f = X} = #{true => X},
     ok.
+
+%% gh-11726: Type info is not sufficient to guarantee safe rewrite
+%% from get_record_field to get_record_element. Disable the optimization
+%% for 29.
+unsafe_get_record_field(_Config) ->
+    true = unsafe_get_record_field_1(true),
+    false = unsafe_get_record_field_1(false),
+    ok.
+
+unsafe_get_record_field_1(true) -> try #d{f = true}#d.f catch _ -> ok end;
+unsafe_get_record_field_1(false) -> #d{f = false}#d.f.
 
 %%% Common utilities.
 

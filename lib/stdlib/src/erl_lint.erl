@@ -412,38 +412,28 @@ format_error_1({unsafe, MFA, Info, Rel}) ->
 format_error_1({unsafe, MFA, Info}) ->
     {~"~s is unsafe; ~s", [format_mfa(MFA), format_obsolete(Info)]};
 format_error_1({deprecated_type, {M1, F1, A1}, Info, Rel}) ->
-    {~"the type ~p:~p~s is deprecated and will be removed in ~s; ~s",
-                  [M1, F1, gen_type_paren(A1), Rel, format_obsolete(Info)]};
+    {~"the type ~p:~p/~w is deprecated and will be removed in ~s; ~s",
+     [M1, F1, A1, Rel, format_obsolete(Info)]};
 format_error_1({deprecated_type, {M1, F1, A1}, Info}) ->
-    {~"the type ~p:~p~s is deprecated; ~s",
-                  [M1, F1, gen_type_paren(A1), format_obsolete(Info)]};
+    {~"the type ~p:~p/~w is deprecated; ~s",
+     [M1, F1, A1, format_obsolete(Info)]};
 format_error_1({deprecated_callback, {M1, F1, A1}, Info, Rel}) ->
-    {~"the callback ~p:~p~s is deprecated and will be removed in ~s; ~s",
-                  [M1, F1, gen_type_paren(A1), Rel, format_obsolete(Info)]};
+    {~"the callback ~p:~p/~w is deprecated and will be removed in ~s; ~s",
+     [M1, F1, A1, Rel, format_obsolete(Info)]};
 format_error_1({deprecated_callback, {M1, F1, A1}, Info}) ->
-    {~"the callback ~p:~p~s is deprecated; ~s",
-                  [M1, F1, gen_type_paren(A1), format_obsolete(Info)]};
+    {~"the callback ~p:~p/~w is deprecated; ~s",
+     [M1, F1, A1, format_obsolete(Info)]};
 format_error_1({removed, MFA, ReplacementMFA, Rel}) ->
     {~"call to ~s will fail, since it was removed in ~s; use ~s",
      [format_mfa(MFA), Rel, format_mfa(ReplacementMFA)]};
 format_error_1({removed, MFA, Info}) ->
     {~"~s is removed; ~s", [format_mfa(MFA), format_obsolete(Info)]};
-format_error_1({removed_type, MNA, Info}) ->
+format_error_1({removed_type, MFA, Info}) ->
     {~"the type ~s is removed; ~s",
-     [format_mna(MNA), format_obsolete(Info)]};
-format_error_1({removed_callback, MNA, Info}) ->
+     [format_mfa(MFA), format_obsolete(Info)]};
+format_error_1({removed_callback, MFA, Info}) ->
     {~"the callback ~s is removed; ~s",
-     [format_mna(MNA), format_obsolete(Info)]};
-format_error_1({obsolete_guard, {F, A}}) ->
-    {~"""
-      ~p/~p as a type test is obsolete and will be
-      removed in OTP 30; use is_~p/~p instead.
-      """, [F, A, F, A]};
-format_error_1({obsolete_guard_overridden,Test}) ->
-    {~"""
-      obsolete ~s/1 (meaning is_~s/1) is illegal when there is a
-      local/imported function named is_~p/1
-      """, [Test,Test,Test]};
+     [format_mfa(MFA), format_obsolete(Info)]};
 format_error_1({too_many_arguments,Arity}) ->
     {~"too many arguments (~w) -- maximum allowed is ~w", [Arity,?MAX_ARGUMENTS]};
 format_error_1(update_literal) ->
@@ -466,6 +456,10 @@ format_error_1(illegal_expr) -> ~"illegal expression";
 format_error_1({illegal_guard_local_call, {F,A}}) ->
     {~"call to local/imported function ~tw/~w is illegal in guard",
      [F,A]};
+format_error_1({illegal_type_test, {F,A}}) ->
+    %% last remnant of old style type tests
+    {~"call to ~tw/~w is not a type test, use is_~tw/~w instead",
+     [F,A,F,A]};
 format_error_1(illegal_guard_expr) -> ~"illegal guard expression";
 format_error_1(match_float_zero) ->
     ~"""
@@ -609,6 +603,38 @@ format_error_1({bad_bitsize,Type}) ->
     {~"bad ~s bit size", [Type]};
 format_error_1(unsized_binary_in_bin_gen_pattern) ->
     ~"binary fields without size are not allowed in patterns of bit string generators";
+format_error_1(latin1_binary) ->
+    ~"""
+     binary string will be Latin-1 encoded.
+     A binary text segment with no /utf8, /utf16, or /utf32 specifier is
+     encoded using 1 byte per character (Latin-1), for historical reasons.
+     You probably only want to do this with characters in the ASCII range (0-127).
+     Characters in the range 128-255 will not be compatible with UTF-8, and codes
+     above 255 cannot be represented at all.
+     Use compile directive 'nowarn_latin1_binary' to suppress this warning
+     if Latin-1 is really what you want; otherwise specify an encoding.
+     Note that `<<"..."/utf8>>` can simply be written `~"..."` since OTP 27.
+     """;
+format_error_1(truncated_character) ->
+    ~"""
+     character code larger than 255 will be truncated.
+     A binary text segment with no /utf8, /utf16, or /utf32 specifier is
+     encoded using 1 byte per character (Latin-1), for historical reasons.
+     Characters with code points above 255 will be truncated to a single byte
+     representing a different character than the one in the source code.
+     You should either specify another encoding or change the characters that
+     are out of range, or you may suppress this warning with compile directive
+     'nowarn_truncated_character'.
+     Note that `<<"..."/utf8>>` can simply be written `~"..."` since OTP 27.
+     """;
+format_error_1({truncated_integer,Int,Bits,Sign}) ->
+    {~"""
+      integer value outside range of binary segment will be truncated.
+      The value ~w cannot be encoded as ~w bits ~tw.
+      Compile directive 'nowarn_truncated_integer' can be used to suppress this
+      warning.
+      """,
+     [Int,Bits,Sign]};
 %% --- behaviours ---
 format_error_1({conflicting_behaviours,{Name,Arity},B,FirstL,FirstB}) ->
     {~"conflicting behaviours -- callback ~tw/~w required by both '~p' and '~p' ~s",
@@ -642,18 +668,16 @@ format_error_1({bad_export_type, _ETs}) ->
 format_error_1({duplicated_export_type, {T, A}}) ->
     {~"type ~tw/~w already exported", [T, A]};
 format_error_1({undefined_type, {TypeName, Arity}}) ->
-    {~"type ~tw~s undefined", [TypeName, gen_type_paren(Arity)]};
+    {~"type ~tw/~w undefined", [TypeName, Arity]};
 format_error_1({unused_type, {TypeName, Arity}}) ->
-    {~"type ~tw~s is unused", [TypeName, gen_type_paren(Arity)]};
+    {~"type ~tw/~w is unused", [TypeName, Arity]};
 format_error_1({redefine_builtin_type, {TypeName, Arity}}) ->
-    {~"local redefinition of built-in type: ~w~s",
-		  [TypeName, gen_type_paren(Arity)]};
+    {~"local redefinition of built-in type: ~w/~w", [TypeName, Arity]};
 format_error_1({renamed_type, OldName, NewName}) ->
     {~"type ~w() is now called ~w(); please use the new name instead",
      [OldName, NewName]};
 format_error_1({redefine_type, {TypeName, Arity}}) ->
-    {~"type ~tw~s already defined",
-     [TypeName, gen_type_paren(Arity)]};
+    {~"type ~tw/~w already defined", [TypeName, Arity]};
 format_error_1({type_syntax, Constr}) ->
     {~"bad ~tw type", [Constr]};
 format_error_1(old_abstract_code) ->
@@ -698,9 +722,8 @@ format_error_1(deprecated_catch) ->
      Compile directive 'nowarn_deprecated_catch' can be used to suppress
      warnings in selected modules.
      """;
- format_error_1({not_exported_opaque, {TypeName, Arity}}) ->
-    {~"opaque type ~tw~s is not exported",
-                  [TypeName, gen_type_paren(Arity)]};
+format_error_1({not_exported_opaque, {TypeName, Arity}}) ->
+    {~"opaque type ~tw/~w is not exported", [TypeName, Arity]};
 format_error_1({bad_dialyzer_attribute,Term}) ->
     {~"badly formed dialyzer attribute: ~tw", [Term]};
 format_error_1({bad_dialyzer_option,Term}) ->
@@ -708,13 +731,6 @@ format_error_1({bad_dialyzer_option,Term}) ->
 %% --- obsolete? unused? ---
 format_error_1({format_error, {Fmt, Args}}) ->
     {Fmt, Args}.
-
-gen_type_paren(Arity) when is_integer(Arity), Arity >= 0 ->
-    gen_type_paren_1(Arity, ")").
-
-gen_type_paren_1(0, Acc) -> "(" ++ Acc;
-gen_type_paren_1(1, Acc) -> "(_" ++ Acc;
-gen_type_paren_1(N, Acc) -> gen_type_paren_1(N - 1, ",_" ++ Acc).
 
 format_mfa({M, F, [_|_]=As}) ->
     ","++ArityString = lists:append([[$,|integer_to_list(A)] || A <- As]),
@@ -728,9 +744,6 @@ format_fa({F, [_|_]=As}) ->
 
 format_mf(M, F, ArityString) when is_atom(M), is_atom(F) ->
     atom_to_list(M) ++ ":" ++ atom_to_list(F) ++ "/" ++ ArityString.
-
-format_mna({M, N, A}) when is_integer(A) ->
-    atom_to_list(M) ++ ":" ++ atom_to_list(N) ++ gen_type_paren(A).
 
 format_where(L) when is_integer(L) ->
     io_lib:format("(line ~p)", [L]);
@@ -959,7 +972,6 @@ bool_options() ->
      {deprecated_type,true},
      {deprecated_callback,true},
      {deprecated_catch,true},
-     {obsolete_guard,true},
      {obsolete_bool_op,false},
      {untyped_record,false},
      {missing_spec,false},
@@ -984,6 +996,9 @@ bool_options() ->
      {undefined_field,true},
      {unsafe_function,true},
      {possibly_unsafe_function,false},
+     {latin1_binary,true},
+     {truncated_character,true},
+     {truncated_integer,true},
      {native_record_header,true}].
 
 %% is_warn_enabled(Category, St) -> boolean().
@@ -1393,34 +1408,38 @@ disallowed_compile_flags(Forms, St0) ->
 %% data about calls etc. have been collected.
 
 post_traversal_check(Forms, St0) ->
-    St1 = check_behaviour(St0),
-    St2 = check_deprecated(Forms, St1),
-    St3 = check_imports(Forms, St2),
-    St4 = check_inlines(Forms, St3),
-    St5 = check_undefined_functions(St4),
-    St6 = check_unused_functions(Forms, St5),
-    St7 = check_bif_clashes(Forms, St6),
-    St8 = check_specs_without_function(St7),
-    St9 = check_functions_without_spec(Forms, St8),
-    StA = check_undefined_types(St9),
-    StB = check_unused_types(Forms, StA),
-    StC = check_untyped_records(Forms, StB),
-    StD = check_on_load(StC),
-    StE = check_export_record(Forms, StD),
-    StF = check_unused_records(Forms, StE),
-    StG = check_native_records_header(Forms, StF),
-    StH = check_local_opaque_types(StG),
-    StI = check_dialyzer_attribute(Forms, StH),
-    StJ = check_callback_information(StI),
-    StK = check_nifs(Forms, StJ),
-    StL = check_unexported_functions(StK),
-    StM = check_removed(Forms, StL),
-    check_unsafe(Forms, StM).
+    foldl(fun(F, Acc) -> F(Forms, Acc) end,
+          St0,
+          [fun check_behaviour/2,
+           fun check_deprecated/2,
+           fun check_deprecated_type_callback/2,
+           fun check_imports/2,
+           fun check_inlines/2,
+           fun check_undefined_functions/2,
+           fun check_unused_functions/2,
+           fun check_bif_clashes/2,
+           fun check_specs_without_function/2,
+           fun check_functions_without_spec/2,
+           fun check_undefined_types/2,
+           fun check_unused_types/2,
+           fun check_untyped_records/2,
+           fun check_on_load/2,
+           fun check_export_record/2,
+           fun check_unused_records/2,
+           fun check_native_records_header/2,
+           fun check_local_opaque_types/2,
+           fun check_dialyzer_attribute/2,
+           fun check_callback_information/2,
+           fun check_nifs/2,
+           fun check_unexported_functions/2,
+           fun check_removed/2,
+           fun check_unsafe/2
+          ]).
 
 %% check_behaviour(State0) -> State
 %% Check that the behaviour attribute is valid.
 
-check_behaviour(St) ->
+check_behaviour(_Forms, St) ->
     case is_warn_enabled(behaviours, St) of
         true ->
             behaviour_check(St#lint.behaviour, St);
@@ -1612,6 +1631,28 @@ deprecated_desc([Char | Str]) when is_integer(Char) -> deprecated_desc(Str);
 deprecated_desc([]) -> true;
 deprecated_desc(_) -> false.
 
+%% check_deprecated_type_callback(Forms, State0) -> State
+
+check_deprecated_type_callback(Forms, St0) ->
+    Bad = [{E,Anno} || {attribute, Anno, Attr, Depr} <- Forms,
+                       (Attr =:= deprecated_type orelse
+                        Attr =:= deprecated_callback),
+                       D <- lists:flatten([Depr]),
+                       E <- depr_cat_flag(D)],
+    foldl(fun ({E,Anno}, St1) ->
+                  add_error(Anno, E, St1)
+          end, St0, Bad).
+
+depr_cat_flag({_F, _A, Flg}=D) ->
+    case deprecated_flag(Flg) of
+        false -> [{invalid_deprecated,D}];
+        true -> []
+    end;
+depr_cat_flag({_F, _A}) ->
+    [];
+depr_cat_flag(D) ->
+    [{invalid_deprecated,D}].
+
 %% check_removed(Forms, State0) -> State
 
 check_removed(Forms, St0) ->
@@ -1798,7 +1839,7 @@ reached_functions([], [], _Ref, Reached) -> gb_sets:to_list(Reached).
 
 %% check_undefined_functions(State0) -> State
 
-check_undefined_functions(#lint{called=Called0,defined=Def0}=St0) ->
+check_undefined_functions(_Forms, #lint{called=Called0,defined=Def0}=St0) ->
     Called = sofs:relation(Called0, [{func,location}]),
     Def = sofs:from_external(gb_sets:to_list(Def0), [func]),
     Undef = sofs:to_external(sofs:drestriction(Called, Def)),
@@ -1823,9 +1864,9 @@ most_possible_string(Name, PossibleNames) ->
             end
     end.
 
-%% check_undefined_types(State0) -> State
+%% check_undefined_types(_Forms, State0) -> State
 
-check_undefined_types(#lint{usage=Usage,types=Def}=St0) ->
+check_undefined_types(_Forms, #lint{usage=Usage,types=Def}=St0) ->
     Used = Usage#usage.used_types,
     UTAs = maps:keys(Used),
     Undef = [{TA,map_get(TA, Used)} ||
@@ -1870,9 +1911,9 @@ check_nifs(Forms, St0) ->
     DefFunctions1 = gb_sets:to_list(DefFunctions),
     func_location_error(undefined_nif, Bad, St1, DefFunctions1).
 
-check_unexported_functions(#lint{callbacks=Cs,
-                                 optional_callbacks=OCs,
-                                 exports=Es0}=St) ->
+check_unexported_functions(_Forms, #lint{callbacks=Cs,
+                                         optional_callbacks=OCs,
+                                         exports=Es0}=St) ->
     Es = case Cs =/= #{} orelse OCs =/= #{} of
             true -> gb_sets:add({behaviour_info, 1}, Es0);
             false -> Es0
@@ -1991,8 +2032,8 @@ check_native_records_header(Forms, #lint{records = Records}=St0) ->
             St0
     end.
 
-check_callback_information(#lint{callbacks = Callbacks,
-                                 optional_callbacks = OptionalCbs,
+check_callback_information(_Forms, #lint{callbacks = Callbacks,
+                                         optional_callbacks = OptionalCbs,
 				 defined = Defined} = St0) ->
     OptFun = fun(MFA, Anno, St) ->
                      case is_map_key(MFA, Callbacks) of
@@ -2226,8 +2267,8 @@ on_load(Anno, Val, St) ->
     %% Bad syntax.
     add_error(Anno, {bad_on_load,Val}, St).
 
--spec check_on_load(lint_state()) -> lint_state().
-check_on_load(#lint{defined=Defined,on_load=[{_,0}=Fa],
+-spec check_on_load(any(), lint_state()) -> lint_state().
+check_on_load(_Forms, #lint{defined=Defined,on_load=[{_,0}=Fa],
 		    on_load_anno=Anno}=St) ->
     case gb_sets:is_member(Fa, Defined) of
         true -> St;
@@ -2240,7 +2281,7 @@ check_on_load(#lint{defined=Defined,on_load=[{_,0}=Fa],
                 GuessF -> add_error(Anno, {undefined_on_load,Fa,GuessF}, St)
             end
     end;
-check_on_load(St) -> St.
+check_on_load(_Forms, St) -> St.
 
 -spec call_function(anno(), atom(), arity(), lint_state()) -> lint_state().
 %%  Add to both called and calls.
@@ -2624,8 +2665,9 @@ bin_element({bin_element,Anno,E,Sz0,Ts}, Vt, {Esvt,St0}, Check) ->
     {Vt1,St1} = Check(E, Vt, St0),
     {Sz1,Vt2,St2} = bit_size(Sz0, Vt, St1, Check),
     {Sz2,Bt,St3} = bit_type(Anno, Sz1, Ts, St2),
-    {_Sz3,St4} = bit_size_check(Anno, Sz2, Bt, St3),
-    {vtmerge([Vt2,Vt1,Esvt]),St4}.
+    {Sz3,St4} = bit_size_check(Anno, Sz2, Bt, St3),
+    St5 = bin_element_check(erl_eval:partial_eval(E), Sz3, Bt, St4),
+    {vtmerge([Vt2,Vt1,Esvt]),St5}.
 
 bit_size(default, _Vt, St, _Check) -> {default,[],St};
 bit_size({atom,_Anno,all}, _Vt, St, _Check) -> {all,[],St};
@@ -2684,6 +2726,29 @@ elemtype_check(Anno, float, _Size, St) ->
     add_warning(Anno, {bad_bitsize,"float"}, St);
 elemtype_check(_Anno, _Type, _Size, St) ->  St.
 
+bin_element_check({string,_,_}, _Bits, #bittype{type=Type}, St0)
+ when Type =:= utf8 ; Type =:= utf16 ; Type =:= utf32 ->
+    St0;
+bin_element_check({string,Anno,List}, _Bits, #bittype{}, St0) ->
+    case lists:any(fun(Char) -> Char > 255 end, List) of
+        true -> maybe_add_warning(Anno, truncated_character, St0);
+        false ->
+            case lists:any(fun(Char) -> Char > 127 end, List) of
+                false -> St0;
+                true -> maybe_add_warning(Anno, latin1_binary, St0)
+            end
+    end;
+bin_element_check({integer,Anno,Int}, Bits, #bittype{type=integer,sign=Sign}, St0) ->
+   case Sign of
+      unsigned when Int < 0; Int >= 1 bsl Bits ->
+          maybe_add_warning(Anno, {truncated_integer,Int,Bits,Sign}, St0);
+      signed when Int >= 1 bsl (Bits-1); -Int > 1 bsl (Bits-1) ->
+          maybe_add_warning(Anno, {truncated_integer,Int,Bits,Sign}, St0);
+      _ ->
+          St0
+    end;
+bin_element_check(_, _, _, St0) ->
+    St0.
 
 %% guard([GuardTest], VarTable, State) ->
 %%      {UsedVarTable,State}
@@ -2706,18 +2771,9 @@ guard_tests([], _Vt, St) -> {[],St}.
 
 %% guard_test(Test, VarTable, State) ->
 %%      {UsedVarTable,State'}
-%%  Check one guard test, returns NewVariables.  We now allow more
-%%  expressions in guards including the new is_XXX type tests, but
-%%  only allow the old type tests at the top level.
+%%  Check one guard test, returns NewVariables.
 
-guard_test(G, Vt, St0) ->
-    St1 = obsolete_guard(G, St0),
-    guard_test2(G, Vt, St1).
-
-%% Specially handle record type test here.
-guard_test2({call,Anno,{atom,Ar,record},[E,A]}, Vt, St0) ->
-    gexpr({call,Anno,{atom,Ar,is_record},[E,A]}, Vt, St0);
-guard_test2({call,Anno,{atom,_Aa,F},As}=G, Vt, St0) ->
+guard_test({call,Anno,{atom,_Aa,F},As}=G, Vt, St0) ->
     {Asvt,St1} = gexpr_list(As, Vt, St0),       %Always check this.
     A = length(As),
     case erl_internal:type_test(F, A) of
@@ -2726,12 +2782,18 @@ guard_test2({call,Anno,{atom,_Aa,F},As}=G, Vt, St0) ->
 		false ->
 		    {Asvt,add_error(Anno, {illegal_guard_local_call,{F,A}}, St1)};
 		true ->
-		    {Asvt,St1}
-	    end;
-	_ ->
-	    gexpr(G, Vt, St0)
+                    {Asvt,St1}
+            end;
+        _ ->
+            %% check for removed old style type tests whose names coincide with
+            %% other guard bifs so they do not become silently failing tests
+            if F =:= float, A =:= 1 ->
+                    {Asvt,add_error(Anno, {illegal_type_test,{F,A}}, St1)};
+               true ->
+                    gexpr(G, Vt, St0)
+            end
     end;
-guard_test2(G, Vt, St) ->
+guard_test(G, Vt, St) ->
     %% Everything else is a guard expression.
     gexpr(G, Vt, St).
 
@@ -2805,6 +2867,10 @@ gexpr({call,Anno,{atom,_Ar,is_record},[E0,{atom,_,_Name},{Type,_,_}]},
 gexpr({call,Anno,{atom,_Ar,is_record},[_,_,_]=Asvt0}, Vt, St0) ->
     {Asvt,St1} = gexpr_list(Asvt0, Vt, St0),
     {Asvt,add_error(Anno, illegal_guard_expr, St1)};
+gexpr({call,_Anno,{remote,_,{atom,_,erlang},{atom,_,is_record}},
+       [E0,{atom,_,_},{Type,_,_}]},
+      Vt, St0) when Type =:= integer; Type =:= atom ->
+    gexpr(E0, Vt, St0);
 gexpr({call,Anno,{remote,_,{atom,_,erlang},{atom,_,is_record}=Isr},[_,_,_]=Args},
       Vt, St0) ->
     gexpr({call,Anno,Isr,Args}, Vt, St0);
@@ -3256,18 +3322,15 @@ expr({maybe_match,Anno,P,E}, Vt, St0) ->
 expr({'maybe',Anno,Es}, Vt, St) ->
     %% No variables are exported.
     {Evt0, St1} = exprs(Es, Vt, St),
-    Evt1 = vtupdate(vtunsafe({'maybe',Anno}, Evt0, Vt), Vt),
-    Evt2 = vtmerge(Evt0, Evt1),
-    {Evt2,St1};
+    {vtupd_unsafe({'maybe',Anno}, Evt0, Vt),St1};
 expr({'maybe',MaybeAnno,Es,{'else',ElseAnno,Cs}}, Vt, St) ->
     %% No variables are exported.
     {Evt0, St1} = exprs(Es, Vt, St),
     Evt1 = vtupdate(vtunsafe({'maybe',MaybeAnno}, Evt0, Vt), Vt),
     {Cvt0, St2} = icrt_clauses(Cs, {'else',ElseAnno}, Evt1, St1),
-    Cvt1 = vtupdate(vtunsafe({'else',ElseAnno}, Cvt0, Vt), Vt),
-    Evt2 = vtmerge(Evt0, Evt1),
-    Cvt2 = vtmerge(Cvt0, Cvt1),
-    {vtmerge(Evt2, Cvt2),St2};
+    Evt2 = vtupd_unsafe({'maybe',MaybeAnno}, Evt0, Vt),
+    Cvt1 = vtupd_unsafe({'else',ElseAnno}, Cvt0, Vt),
+    {vtmerge(Evt2, Cvt1),St2};
 %% No comparison or boolean operators yet.
 expr({op,Anno,Op,A}, Vt, St) ->
     vtupd_export_expr_list({Op, Anno}, [A], Vt, St);
@@ -3681,9 +3744,15 @@ check_fields(Fs, Flavor, Name, Fields, Vt0, St0, CheckFun, DiagFlavor) ->
               end, {[],[], St0}, Fs),
     {Uvt,St1}.
 
-check_field({record_field,_Af,_F,Val}, native, _Name, unknown,
+check_field({record_field,Af,{atom,_Aa,F},Val}, native, Name, unknown,
             Vt, St0, Rfs, CheckFun, _DiagFlavor) ->
-    {Rfs, CheckFun(Val, Vt, St0)};
+    %% External native records.
+    case member(F, Rfs) of
+        true ->
+            {Rfs,{[],add_error(Af, {redefine_field,Name,F}, St0)}};
+        false ->
+            {[F|Rfs], CheckFun(Val, Vt, St0)}
+    end;
 check_field({record_field,Af,{atom,Aa,F},Val}, Flavor, Name, Fields,
             Vt, St0, Rfs, CheckFun, DiagFlavor) ->
     case member(F, Rfs) of
@@ -4376,7 +4445,7 @@ nowarn() ->
     A1 = erl_anno:set_generated(true, A0),
     erl_anno:set_file("", A1).
 
-check_specs_without_function(#lint{module=Mod,defined=Funcs,specs=Specs}=St) ->
+check_specs_without_function(_Forms, #lint{module=Mod,defined=Funcs,specs=Specs}=St) ->
     Fun = fun({M, F, A}, Anno, AccSt) when M =:= Mod ->
                   FA = {F, A},
 		  case gb_sets:is_element(FA, Funcs) of
@@ -4476,7 +4545,7 @@ reached_types(#lint{usage = Usage}) ->
 initially_reached_types(Es) ->
     [FromTypeId || {{T, _}=FromTypeId, _} <- Es, T =/= type].
 
-check_local_opaque_types(St) ->
+check_local_opaque_types(_Forms, St) ->
     #lint{types=Ts, exp_types=ExpTs} = St,
     FoldFun =
         fun(_Type, #typeinfo{attr = type}, AccSt) ->
@@ -5464,27 +5533,6 @@ deprecated_type(Anno, M, N, As, St) ->
             St
     end.
 
-obsolete_guard({call,Anno,{atom,Ar,F},As}, St0) ->
-    Arity = length(As),
-    case erl_internal:old_type_test(F, Arity) of
-	false ->
-	    deprecated_function(Anno, erlang, F, As, St0);
-	true ->
-	    St = maybe_add_warning(Ar, {obsolete_guard, {F, Arity}}, St0),
-	    test_overriden_by_local(Ar, F, Arity, St)
-    end;
-obsolete_guard(_G, St) ->
-    St.
-
-test_overriden_by_local(Anno, OldTest, Arity, St) ->
-    ModernTest = list_to_atom("is_"++atom_to_list(OldTest)),
-    case is_local_function(St#lint.locals, {ModernTest, Arity}) of
-	true ->
-	    add_error(Anno, {obsolete_guard_overridden,OldTest}, St);
-	false ->
-	    St
-    end.
-
 feature_keywords() ->
     Features = erl_features:configurable(),
     G = fun(Ftr, Map) ->
@@ -5646,15 +5694,15 @@ check_format_string(Fmt, Strict) when is_binary(Fmt) ->
 check_format_string(Fmt, Strict) ->
     extract_sequences(Fmt, [], Strict).
 
-extract_sequences(Fmt, Need0, Strict) ->
-    case string:find(Fmt, [$~]) of
-        nomatch -> {ok,lists:reverse(Need0)};         %That's it
-        [$~|Fmt1] ->
-            case extract_sequence(1, Fmt1, Need0, Strict) of
-                {ok,Need1,Rest} -> extract_sequences(Rest, Need1, Strict);
-                Error -> Error
-            end
-    end.
+extract_sequences([$~|Fmt], Need0, Strict) ->
+    case extract_sequence(1, Fmt, Need0, Strict) of
+        {ok,Need1,Rest} -> extract_sequences(Rest, Need1, Strict);
+        Error -> Error
+    end;
+extract_sequences([_|Fmt], Need, Strict) ->
+    extract_sequences(Fmt, Need, Strict);
+extract_sequences([], Need, _Strict) ->
+    {ok,lists:reverse(Need)}.
 
 extract_sequence(1, [$-,C|Fmt], Need, Strict)
   when is_integer(C), C >= $0, C =< $9 ->

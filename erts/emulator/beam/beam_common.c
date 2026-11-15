@@ -370,7 +370,7 @@ ubif2mfa(void* uf)
 /*
  * Mapping from the error code 'class tag' to atoms.
  */
-Eterm exception_tag[NUMBER_EXC_TAGS] = {
+const Eterm exception_tag[NUMBER_EXC_TAGS] = {
   am_error,	/* 0 */
   am_exit,	/* 1 */
   am_throw,	/* 2 */
@@ -379,7 +379,7 @@ Eterm exception_tag[NUMBER_EXC_TAGS] = {
 /*
  * Mapping from error code 'index' to atoms.
  */
-Eterm error_atom[NUMBER_EXIT_CODES] = {
+const Eterm error_atom[NUMBER_EXIT_CODES] = {
   am_internal_error,	/* 0 */
   am_normal,		/* 1 */
   am_internal_error,	/* 2 */
@@ -1505,7 +1505,7 @@ apply(Process* p, Eterm* reg, ErtsCodePtr I, Uint stack_offset)
     tmp = args;
     arity = 0;
     while (is_list(tmp)) {
-	if (arity < (MAX_REG - 1)) {
+        if (arity < MAX_ARG) {
 	    reg[arity++] = CAR(list_val(tmp));
 	    tmp = CDR(list_val(tmp));
 	} else {

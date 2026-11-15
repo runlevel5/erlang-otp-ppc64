@@ -33,7 +33,8 @@
 
 -export([system_info/1, table_info/1, error_description/1,
          db_node_lifecycle/1, evil_delete_db_node/1, start_and_stop/1,
-         checkpoint/1, checkpoint_del_table/1, table_lifecycle/1, storage_options/1,
+         checkpoint/1, checkpoint_del_table/1, checkpoint_change_table_copy_type/1,
+         table_lifecycle/1, storage_options/1,
          add_copy_conflict/1, add_copy_when_going_down/1, add_copy_when_dst_going_down/1,
          add_copy_with_down/1,
          replica_management/1, clear_table_during_load/1,
@@ -47,6 +48,7 @@
          snmp_open_table/1, snmp_close_table/1, snmp_get_next_index/1,
          snmp_get_row/1, snmp_get_mnesia_key/1, snmp_update_counter/1,
          snmp_order/1, subscribe_standard/1, subscribe_extended/1,
+         subscriber_exit_after_table_deleted/1,
          foldl/1, info/1, schema_0/1, schema_1/1, view_0/1, view_1/1, view_2/1,
          lkill/1, kill/1,
          record_name_dirty_access_ram/1,
@@ -73,7 +75,7 @@ end_per_testcase(Func, Conf) ->
 all() -> 
     [system_info, table_info, error_description,
      db_node_lifecycle, evil_delete_db_node, start_and_stop,
-     checkpoint, checkpoint_del_table,
+     checkpoint, checkpoint_del_table, checkpoint_change_table_copy_type,
      table_lifecycle, storage_options,
      add_copy_conflict,
      add_copy_when_going_down, add_copy_when_dst_going_down, add_copy_with_down,
@@ -103,7 +105,8 @@ groups() ->
        snmp_get_row, snmp_get_mnesia_key, snmp_update_counter,
        snmp_order]},
      {subscriptions, [],
-      [subscribe_standard, subscribe_extended]},
+      [subscribe_standard, subscribe_extended,
+       subscriber_exit_after_table_deleted]},
      {iteration, [], [foldl]},
      {debug_support, [],
       [info, schema_0, schema_1, view_0, view_1, view_2,
@@ -491,6 +494,19 @@ checkpoint_del_table(Config) when is_list(Config) ->
     %% Ensure we didn't crash
 
     ?verify_mnesia([Node1], []).
+
+checkpoint_change_table_copy_type(Config) when is_list(Config) ->
+    [Node1] = Nodes = ?acquire_nodes(1, Config),
+
+    Tab = checkpoint_change_table_copy_type,
+    ?match({atomic, ok}, mnesia:create_table(Tab, [{ram_copies, Nodes}])),
+
+    CpName = checkpoint_name,
+    ?match({ok, CpName, Nodes}, mnesia:activate_checkpoint([{name, CpName}, {max, [Tab]}])),
+    ?match({atomic, ok}, mnesia:change_table_copy_type(Tab, Node1, disc_copies)),
+    ?match(ok, mnesia:deactivate_checkpoint(CpName)),
+
+    ?verify_mnesia(Nodes, []).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Create and delete tables
@@ -2318,6 +2334,75 @@ recv_event() ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+subscriber_exit_after_table_deleted(suite) -> [];
+subscriber_exit_after_table_deleted(Config) when is_list(Config) ->
+    ?is_debug_compiled,
+    process_flag(trap_exit, true),
+    [N1] = Nodes = ?acquire_nodes(1, Config),
+    Tab = subscriber_exit_after_table_deleted,
+    ?match({atomic, ok}, mnesia:create_table(Tab, [{ram_copies, Nodes}])),
+
+    TestPid = self(),
+    %% Stop mnesia dumper after it removed subscriptions, but before gvar of Tab is deleted
+    DumperDebugId = {mnesia_dumper, delete_table, post_unsubscribe},
+    DumperDebugFun =
+        fun(_PreviousCtx, [{tab, T}] = Ctx) when Tab =:= T ->
+                TestPid ! {self(), dumper_blocked},
+                receive {TestPid, continue} -> ok end,
+                ?deactivate_debug_fun(DumperDebugId),
+                Ctx;
+           (PreviousCtx, _) ->
+                PreviousCtx
+        end,
+    ?activate_debug_fun(DumperDebugId, DumperDebugFun, ok),
+
+    %% Signal when handle_exit has been called for Tab
+    SubscrDebugId = {mnesia_subscr, do_handle_exit},
+    SubscrDebugFun =
+        fun(_PreviousCtx, [{client_pid, _Pid}, {what, {table, T, simple}}] = Ctx) when Tab =:= T ->
+                TestPid ! {handle_exit, Ctx},
+                ?deactivate_debug_fun(SubscrDebugId),
+                Ctx;
+           (PreviousCtx, _Ctx) ->
+                PreviousCtx
+        end,
+    ?activate_debug_fun(SubscrDebugId, SubscrDebugFun, ok),
+
+    Deleter = spawn_link(fun() ->
+                                 TestPid ! {self(), mnesia:delete_table(Tab)}
+                         end),
+    Dumper = receive {Pid, dumper_blocked} -> Pid end,
+    %% Dumper has removed subscriptions, but cstruct still exists for Tab
+
+    Subscriber = spawn_link(fun() ->
+                                    TestPid ! {self(), mnesia:subscribe({table, Tab, simple})},
+                                    timer:sleep(infinity)
+                            end),
+    ?match({ok, N1}, receive {Subscriber, Res} -> Res end),
+
+    Dumper ! {self(), continue},
+    ?match({atomic, ok}, receive {Deleter, Res} -> Res end),
+    %% Now cstruct is deleted
+
+    MnesiaSubscr = whereis(mnesia_subscr),
+    MonRef = monitor(process, whereis(mnesia_subscr)),
+
+    %% Kill subscriber
+    exit_signal(Subscriber, kill),
+    ?match([{client_pid, Subscriber}, {what, {table, Tab, simple}}], receive {handle_exit, Ctx} -> Ctx end),
+    receive {'EXIT', Subscriber, killed} -> ok end,
+
+    receive {'DOWN', process, MnesiaSubscr, MonRef, _} ->
+            ct:fail("mnesia_subscr crashed~n")
+    after 1000 ->
+            demonitor(MonRef, [flush]),
+            ok
+    end,
+
+    ?verify_mnesia(Nodes, []).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 
 foldl(suite) ->
     [];
@@ -2748,7 +2833,8 @@ change_table_copy_type_node_down_allowed(Config) when is_list(Config) ->
     ?verify_mnesia(All, []),
     ?match({[[N1], [N1]], []}, rpc:multicall(All, mnesia, table_info, [tab, disc_copies])),
     ?match({[[N2], [N2]], []}, rpc:multicall(All, mnesia, table_info, [tab, ram_copies])),
-    ?match({[Schema1, Schema1], []}, rpc:multicall(All, ets, tab2list, [schema])),
+    {SchemaLists1, []} = rpc:multicall(All, ets, tab2list, [schema]),
+    ?match([Schema1, Schema1], [lists:sort(L) || L <- SchemaLists1]),
 
     ?match([], mnesia_test_lib:kill_mnesia([N2])),
     ?match(ok, mnesia:delete_schema([N2])),
@@ -2760,7 +2846,8 @@ change_table_copy_type_node_down_allowed(Config) when is_list(Config) ->
     ?verify_mnesia(All, []),
     ?match({[[N1], [N1]], []}, rpc:multicall(All, mnesia, table_info, [tab, disc_only_copies])),
     ?match({[[N2], [N2]], []}, rpc:multicall(All, mnesia, table_info, [tab, ram_copies])),
-    ?match({[Schema2, Schema2], []}, rpc:multicall(All, ets, tab2list, [schema])).
+    {SchemaLists2, []} = rpc:multicall(All, ets, tab2list, [schema]),
+    ?match([Schema2, Schema2], [lists:sort(L) || L <- SchemaLists2]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -2815,4 +2902,5 @@ verify_change_table_copy_type_node_down_not_allowed(Config, From, To) ->
 
     ?verify_mnesia(All, []),
     ?match({[All, All], []}, rpc:multicall(All, mnesia, table_info, [tab, From])),
-    ?match({[Schema, Schema], []}, rpc:multicall(All, ets, tab2list, [schema])).
+    {SchemaLists, []} = rpc:multicall(All, ets, tab2list, [schema]),
+    ?match([Schema, Schema], [lists:sort(L) || L <- SchemaLists]).

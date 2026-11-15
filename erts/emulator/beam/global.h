@@ -225,7 +225,9 @@ struct erts_driver_t_ {
     DE_Handle *handle;
     erts_mtx_t *lock;
     ErlDrvEntry *entry;
-    ErlDrvData (*start)(ErlDrvPort port, char *command, SysDriverOpts* opts);
+    ErlDrvData (*start)(ErlDrvPort port, char *command);
+    ErlDrvData (*start_sys_drv)(ErlDrvPort port, char *command,
+                               SysDriverOpts* opts);
     void (*stop)(ErlDrvData drv_data);
     void (*finish)(void);
     void (*flush)(ErlDrvData drv_data);
@@ -493,8 +495,6 @@ typedef struct ErtsWStack_ {
 #define DEF_WSTACK_SIZE (16)
 
 void erl_grow_wstack(ErtsWStack*, Uint need);
-#define WSTK_CONCAT(a,b) a##b
-#define WSTK_DEF_STACK(s) WSTK_CONCAT(s,_default_wstack)
 
 #define WSTACK_DEFAULT_VALUE(wstack_default_stack_array, alloc_type)    \
     (ErtsWStack) {                                                      \
@@ -506,13 +506,13 @@ void erl_grow_wstack(ErtsWStack*, Uint need);
     }
 
 #define WSTACK_DECLARE(s)				\
-    UWord WSTK_DEF_STACK(s)[DEF_WSTACK_SIZE];		\
-    ErtsWStack s = {					\
-        WSTK_DEF_STACK(s),  /* wstart */ 		\
-        WSTK_DEF_STACK(s),  /* wsp */			\
-        WSTK_DEF_STACK(s) + DEF_WSTACK_SIZE, /* wend */	\
-        WSTK_DEF_STACK(s),  /* wdflt */ 		\
-        ERTS_ALC_T_ESTACK /* alloc_type */		\
+    UWord s##_default_stack[DEF_WSTACK_SIZE];           \
+    ErtsWStack s = {                                    \
+        .wstart = s##_default_stack,                    \
+        .wsp = s##_default_stack,                       \
+        .wend = s##_default_stack + DEF_WSTACK_SIZE,    \
+        .wdefault = s##_default_stack,                  \
+        .alloc_type = ERTS_ALC_T_ESTACK,                \
     }
 #define DECLARE_WSTACK WSTACK_DECLARE
 
@@ -532,7 +532,7 @@ do {	 	                                                  \
 
 #define WSTACK_CHANGE_ALLOCATOR(s,t)					\
 do {									\
-    if (s.wstart != WSTK_DEF_STACK(s)) {				\
+    if (s.wstart != s.wdefault) {				\
 	erts_exit(ERTS_ERROR_EXIT, "Internal error - trying to change allocator "	\
 		 "type of active wstack\n");				\
     }									\
@@ -582,7 +582,7 @@ do {\
  */
 #define WSTACK_SAVE(s,dst)\
 do {\
-    if (s.wstart == WSTK_DEF_STACK(s)) {\
+    if (s.wstart == s.wdefault) {\
 	UWord _wsz = WSTACK_COUNT(s);\
 	(dst)->wstart = erts_alloc(s.alloc_type,\
 				  DEF_WSTACK_SIZE * sizeof(UWord));\
@@ -611,14 +611,14 @@ do {\
  */
 #define WSTACK_RESTORE(s, src)			\
 do {						\
-    ASSERT(s.wstart == WSTK_DEF_STACK(s));	\
+    ASSERT(s.wstart == s.wdefault);	        \
     s = *(src);  /* struct copy */		\
     (src)->wstart = NULL;			\
     ASSERT(s.wsp >= s.wstart);			\
     ASSERT(s.wsp <= s.wend);			\
 } while (0)
 
-#define WSTACK_IS_STATIC(s) (s.wstart == WSTK_DEF_STACK(s))
+#define WSTACK_IS_STATIC(s) (s.wstart == s.wdefault)
 
 #define WSTACK_RESERVE(s, push_cnt)             \
 do {						\
@@ -1291,7 +1291,7 @@ Port *erts_open_driver(erts_driver_t*, Eterm, char*, SysDriverOpts*, int *, int 
 void erts_init_io(int, int, int);
 void erts_raw_port_command(Port*, byte*, Uint);
 void driver_report_exit(ErlDrvPort, int);
-LineBuf* allocate_linebuf(int);
+LineBuf* allocate_linebuf(Sint);
 int async_ready(Port *, void*);
 ErtsPortNames *erts_get_port_names(Eterm, ErlDrvPort);
 void erts_free_port_names(ErtsPortNames *);
@@ -1548,6 +1548,11 @@ Eterm erts_bnot(Process* p, Eterm arg);
 Eterm erts_bor(Process* p, Eterm arg1, Eterm arg2);
 Eterm erts_band(Process* p, Eterm arg1, Eterm arg2);
 
+Eterm erts_ctz(Eterm arg);
+Eterm erts_popcount(Eterm arg);
+Eterm erts_unsigned_width(Eterm arg);
+Eterm erts_signed_width(Eterm arg);
+
 Eterm erts_gc_mixed_plus(Process* p, Eterm* reg, Uint live);
 Eterm erts_gc_mixed_minus(Process* p, Eterm* reg, Uint live);
 Eterm erts_gc_mixed_times(Process* p, Eterm* reg, Uint live);
@@ -1565,11 +1570,11 @@ int erts_print_system_version(fmtfn_t to, void *arg, Process *c_p);
 
 void erts_hibernate(Process *c_p, Eterm *regs, int arity);
 
-ERTS_GLB_FORCE_INLINE int erts_is_literal(Eterm tptr, Eterm *ptr);
+ERTS_GLB_FORCE_INLINE bool erts_is_literal(Eterm tptr, Eterm *ptr);
 
 #if ERTS_GLB_INLINE_INCL_FUNC_DEF
 
-ERTS_GLB_FORCE_INLINE int erts_is_literal(Eterm tptr, Eterm *ptr)
+ERTS_GLB_FORCE_INLINE bool erts_is_literal(Eterm tptr, Eterm *ptr)
 {
     ASSERT(is_boxed(tptr) || is_list(tptr));
     ASSERT(ptr == ptr_val(tptr));

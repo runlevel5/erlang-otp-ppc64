@@ -280,7 +280,7 @@ BeamModuleAssembler::BeamModuleAssembler(BeamGlobalAssembler *_ga,
                                          const BeamFile *file)
         : BeamAssembler(getAtom(_mod)), BeamModuleAssemblerCommon(file, _mod),
           ga(_ga) {
-    rawLabels.reserve(num_labels + 1);
+    rawLabels.resize(num_labels + 1);
 
     if (logger.file() && beam) {
         /* Dig out all named labels from the BEAM-file and sort them on the
@@ -332,11 +332,11 @@ BeamModuleAssembler::BeamModuleAssembler(BeamGlobalAssembler *_ga,
             /* The named_labels are sorted, so no need for a search. */
             if (e->label == i) {
                 erts_snprintf(tmp, sizeof(tmp), "%T/%d", e->function, e->arity);
-                rawLabels.emplace(i, a.new_named_label(tmp));
+                rawLabels[i] = a.new_named_label(tmp);
                 e++;
             } else {
                 std::string lblName = "label_" + std::to_string(i);
-                rawLabels.emplace(i, a.new_named_label(lblName.data()));
+                rawLabels[i] = a.new_named_label(lblName.data());
             }
         }
 
@@ -347,12 +347,12 @@ BeamModuleAssembler::BeamModuleAssembler(BeamGlobalAssembler *_ga,
          * labels. */
         for (int i = 1; i < num_labels; i++) {
             std::string lblName = "label_" + std::to_string(i);
-            rawLabels.emplace(i, a.new_named_label(lblName.data()));
+            rawLabels[i] = a.new_named_label(lblName.data());
         }
     } else {
         /* No output is requested, go with unnamed labels */
         for (int i = 1; i < num_labels; i++) {
-            rawLabels.emplace(i, a.new_label());
+            rawLabels[i] = a.new_label();
         }
     }
 
@@ -369,16 +369,40 @@ BeamModuleAssembler::BeamModuleAssembler(BeamGlobalAssembler *_ga,
     }
 }
 
-void *BeamModuleAssembler::register_metadata(const BeamCodeHeader *header) {
-#ifndef WIN32
+void BeamModuleAssembler::prepare_metadata(const BeamCodeHeader *header) {
+#ifdef HAVE_BEAMASM_METADATA_SUPPORT
     const BeamCodeLineTab *line_table = header->line_table;
 
     char name_buffer[MAX_ATOM_SZ_LIMIT];
     std::string module_name = getAtom(mod);
-    std::vector<AsmRange> ranges;
+    AsmMetadata &metadata = prepared_metadata;
+    std::vector<AsmRange> &ranges = metadata.ranges;
     ERTS_DECL_AM(erts_beamasm);
 
-    ranges.reserve(functions.size() + 2);
+    ranges.reserve(2 * functions.size() + 2);
+
+    if (line_table && beam) {
+        Uint32 file_count = beam->lines.name_count;
+
+        metadata.files.reserve(file_count);
+
+        for (Uint32 i = 0; i < file_count; i++) {
+            Eterm fname = line_table->fname_ptr[i];
+            Sint n;
+
+            ERTS_ASSERT(is_nil(fname) || is_list(fname));
+
+            int res = erts_unicode_list_to_buf(fname,
+                                               (byte *)name_buffer,
+                                               sizeof(name_buffer),
+                                               sizeof(name_buffer) / 4,
+                                               &n);
+
+            ERTS_ASSERT(res != -1);
+
+            metadata.files.emplace_back(name_buffer, n);
+        }
+    }
 
     ASSERT((ErtsCodePtr)getBaseAddress() == (ErtsCodePtr)header);
     ASSERT(functions.size() == header->num_functions);
@@ -431,6 +455,8 @@ void *BeamModuleAssembler::register_metadata(const BeamCodeHeader *header) {
             const void **line_cursor = line_table->func_tab[i];
             const int loc_size = line_table->loc_size;
 
+            lines.reserve(line_table->func_tab[i + 1] - line_cursor);
+
             /* Register all lines belonging to this function. */
             while ((intptr_t)line_cursor[0] < (intptr_t)stop) {
                 ptrdiff_t line_index;
@@ -446,25 +472,12 @@ void *BeamModuleAssembler::register_metadata(const BeamCodeHeader *header) {
                 }
 
                 if (loc != LINE_INVALID_LOCATION) {
-                    Uint32 file;
-                    Eterm fname;
-                    int res;
+                    Uint32 file = LOC_FILE(loc);
 
-                    file = LOC_FILE(loc);
-                    fname = line_table->fname_ptr[file];
-
-                    ERTS_ASSERT(is_nil(fname) || is_list(fname));
-
-                    res = erts_unicode_list_to_buf(fname,
-                                                   (byte *)name_buffer,
-                                                   sizeof(name_buffer),
-                                                   sizeof(name_buffer) / 4,
-                                                   &n);
-
-                    ERTS_ASSERT(res != -1);
+                    ERTS_ASSERT(file < metadata.files.size());
 
                     lines.push_back({.start = line_cursor[0],
-                                     .file = std::string(name_buffer, n),
+                                     .file = file,
                                      .line = LOC_LINE(loc)});
                 }
 
@@ -474,8 +487,8 @@ void *BeamModuleAssembler::register_metadata(const BeamCodeHeader *header) {
 
         ranges.push_back({.start = start,
                           .stop = stop,
-                          .name = function_name,
-                          .lines = lines});
+                          .name = std::move(function_name),
+                          .lines = std::move(lines)});
     }
 
     /* Push info about the footer */
@@ -484,10 +497,20 @@ void *BeamModuleAssembler::register_metadata(const BeamCodeHeader *header) {
              .stop = (ErtsCodePtr)(code.base_address() + code.code_size()),
              .name = module_name + "::codeFooter"});
 
-    return beamasm_metadata_insert(module_name,
+    metadata_prepared = true;
+#endif
+}
+
+void *BeamModuleAssembler::register_metadata(const BeamCodeHeader *header) {
+#ifdef HAVE_BEAMASM_METADATA_SUPPORT
+    /* Runtime-generated helper modules bypass the BEAM loader. */
+    if (!metadata_prepared) {
+        prepare_metadata(header);
+    }
+    return beamasm_metadata_insert(getAtom(mod),
                                    (ErtsCodePtr)code.base_address(),
                                    code.code_size(),
-                                   ranges);
+                                   prepared_metadata);
 #else
     return NULL;
 #endif
@@ -558,13 +581,23 @@ void BeamModuleAssembler::patchLambda(char *rw_base,
 
 void BeamModuleAssembler::patchLiteral(char *rw_base,
                                        unsigned index,
-                                       Eterm lit) {
-    for (const auto &patch : literals[index].patches) {
+                                       Eterm value) {
+    const auto &literal = literals[index];
+
+    for (const auto &patch : literal.patches) {
         auto offset = code.label_offset_from_base(patch.where);
         auto where = (Eterm *)&rw_base[offset + patch.ptr_offs];
 
         ASSERT(LLONG_MAX == *where);
-        *where = lit + patch.val_offs;
+        *where = value + patch.val_offs;
+    }
+
+    for (const auto &[patch, resolve] : literal.deferred) {
+        auto offset = code.label_offset_from_base(patch.where);
+        auto where = (Eterm *)&rw_base[offset + patch.ptr_offs];
+
+        ASSERT(LLONG_MAX == *where);
+        *where = resolve(value);
     }
 }
 
@@ -617,6 +650,8 @@ Eterm beam_jit_call_bif(Process *c_p,
                                             result,
                                             reg,
                                             arity);
+    } else if (c_p->live_hf_end != ERTS_INVALID_HFRAG_PTR) {
+        c_p->live_hf_end = ERTS_INVALID_HFRAG_PTR;
     }
 
     return result;
@@ -673,6 +708,9 @@ Eterm beam_jit_call_nif(Process *c_p,
                                                     nif_bif_result,
                                                     reg,
                                                     bif_nif_arity);
+    } else {
+        /* NIFs cannot disable GC, so there is no marker to clear. */
+        ASSERT(c_p->live_hf_end == ERTS_INVALID_HFRAG_PTR);
     }
 
     return nif_bif_result;
@@ -1119,13 +1157,7 @@ Sint32 beam_jit_remove_message(Process *c_p,
             DT_UTAG_FLAGS(c_p) |= DT_UTAG_SPREADING;
         } else {
 #endif
-            ASSERT(is_tuple(SEQ_TRACE_TOKEN(c_p)));
-            ASSERT(SEQ_TRACE_TOKEN_ARITY(c_p) == 5);
-            ASSERT(is_small(SEQ_TRACE_TOKEN_SERIAL(c_p)));
-            ASSERT(is_small(SEQ_TRACE_TOKEN_LASTCNT(c_p)));
-            ASSERT(is_small(SEQ_TRACE_TOKEN_FLAGS(c_p)));
-            ASSERT(is_pid(SEQ_TRACE_TOKEN_SENDER(c_p)) ||
-                   is_atom(SEQ_TRACE_TOKEN_SENDER(c_p)));
+            ASSERT(SEQ_TRACE_TOKEN_VALID(c_p));
             c_p->seq_trace_lastcnt = unsigned_val(SEQ_TRACE_TOKEN_SERIAL(c_p));
             if (c_p->seq_trace_clock <
                 unsigned_val(SEQ_TRACE_TOKEN_SERIAL(c_p))) {

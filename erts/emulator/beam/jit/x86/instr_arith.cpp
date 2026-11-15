@@ -776,11 +776,44 @@ void BeamModuleAssembler::emit_div_rem(const ArgLabel &Fail,
                 a.or_(x86::rax, imm(_TAG_IMMED1_SMALL));
             }
         } else {
-            comment("divide with inlined code");
-            a.mov(ARG6, imm(divisor));
             a.sar(x86::rax, imm(_TAG_IMMED1_SIZE));
-            a.cqo();
-            a.idiv(ARG6);
+
+            if (divisor > 0) {
+                unsigned shift;
+                Uint reciprocal = beam_jit_div_reciprocal(divisor, &shift);
+
+                comment("optimized div by multiplying with the reciprocal");
+                a.mov(ARG1, x86::rax);
+                mov_imm(ARG6, reciprocal);
+                a.imul(x86::rdx, x86::rax, ARG6);
+                if (shift != 0) {
+                    a.sar(x86::rdx, imm(shift));
+                }
+                if (std::get<0>(getClampedRange(LHS)) >= 0) {
+                    a.mov(x86::rax, x86::rdx);
+                } else {
+                    a.mov(x86::rax, ARG1);
+                    a.shr(x86::rax, imm(63));
+                    a.add(x86::rax, x86::rdx);
+                }
+
+                if (need_rem) {
+                    if (Support::is_int_n<32>(divisor)) {
+                        a.imul(x86::rdx, x86::rax, imm(divisor));
+                    } else {
+                        mov_imm(ARG6, divisor);
+                        a.mov(x86::rdx, x86::rax);
+                        a.imul(x86::rdx, ARG6);
+                    }
+                    a.sub(ARG1, x86::rdx);
+                    a.mov(x86::rdx, ARG1);
+                }
+            } else {
+                comment("divide with inlined code");
+                a.mov(ARG6, imm(divisor));
+                a.cqo();
+                a.idiv(ARG6);
+            }
 
             if (need_div) {
                 a.sal(x86::rax, imm(_TAG_IMMED1_SIZE));
@@ -928,8 +961,7 @@ void BeamGlobalAssembler::emit_mul_add_guard_shared() {
     a.mov(ARG3, TMP_MEM1q);
     a.mov(ARG2, RET);
     a.mov(ARG1, c_p);
-    a.cmp(ARG3, imm(make_small(0)));
-    a.short_().je(done);
+
     runtime_call<Eterm (*)(Process *, Eterm, Eterm), erts_mixed_plus>();
 
     a.bind(done);
@@ -939,6 +971,16 @@ void BeamGlobalAssembler::emit_mul_add_guard_shared() {
     emit_test_the_non_value(RET); /* Sets ZF for use in caller */
 
     a.ret();
+}
+
+/* ARG2 = Src1
+ * ARG3 = Src2
+ *
+ * The result is returned in RET.
+ */
+void BeamGlobalAssembler::emit_mul_body_shared() {
+    mov_imm(ARG4, THE_NON_VALUE);
+    a.jmp(labels[mul_add_body_shared]);
 }
 
 /* ARG2 = Src1
@@ -957,7 +999,7 @@ void BeamGlobalAssembler::emit_mul_add_body_shared() {
     a.mov(TMP_MEM1q, ARG2);
     a.mov(TMP_MEM2q, ARG3);
     a.mov(ARG1, c_p);
-    a.cmp(ARG4, imm(make_small(0)));
+    emit_test_the_non_value(ARG4);
     a.short_().je(mul_only);
     a.mov(TMP_MEM4q, ARG4);
 
@@ -1012,39 +1054,44 @@ void BeamGlobalAssembler::emit_mul_add_body_shared() {
 /* ARG2 = Src1
  * ARG3 = Src2
  *
- * The result is returned in RET.
- */
-void BeamGlobalAssembler::emit_mul_body_shared() {
-    mov_imm(ARG4, make_small(0));
-    a.jmp(labels[mul_add_body_shared]);
-}
-
-/* ARG2 = Src1
- * ARG3 = Src2
- *
  * Result is returned in RET, error is indicated by ZF.
  */
 void BeamGlobalAssembler::emit_mul_guard_shared() {
-    mov_imm(ARG4, make_small(0));
-    a.jmp(labels[mul_add_guard_shared]);
+    emit_enter_frame();
+    emit_enter_runtime<Update::eReductions>();
+
+    a.mov(ARG1, c_p);
+
+    runtime_call<Eterm (*)(Process *, Eterm, Eterm), erts_mixed_times>();
+
+    emit_leave_runtime<Update::eReductions>();
+    emit_leave_frame();
+
+    emit_test_the_non_value(RET); /* Sets ZF for use in caller */
+
+    a.ret();
 }
 
 void BeamModuleAssembler::emit_i_mul_add(const ArgLabel &Fail,
                                          const ArgSource &Src1,
                                          const ArgSource &Src2,
                                          const ArgSource &Src3,
-                                         const ArgSource &Src4,
+                                         const ArgVal &Src4,
                                          const ArgRegister &Dst) {
+    bool has_increment = !Src4.isWord();
     bool is_product_small = is_product_small_if_args_are_small(Src1, Src2);
-    bool is_sum_small = is_sum_small_if_args_are_small(Src3, Src4);
+    bool is_sum_small =
+            !has_increment || is_sum_small_if_args_are_small(Src3, Src4);
     bool sometimes_small = !(Src2.isLiteral() || Src4.isLiteral());
     bool is_increment_zero =
             Src4.isSmall() && Src4.as<ArgSmall>().getSigned() == 0;
     Sint factor = 0;
     int left_shift = -1;
 
-    if (is_increment_zero) {
-        comment("(adding zero)");
+    if (!has_increment) {
+        comment("(no increment)");
+    } else {
+        comment("(with increment)");
     }
 
     if (Src2.isSmall()) {
@@ -1054,10 +1101,12 @@ void BeamModuleAssembler::emit_i_mul_add(const ArgLabel &Fail,
         }
     }
 
-    if (always_small(Src1) && Src2.isSmall() && Src4.isSmall() &&
-        is_product_small && is_sum_small) {
+    if (always_small(Src1) && Src2.isSmall() &&
+        (!has_increment || Src4.isSmall()) && is_product_small &&
+        is_sum_small) {
         x86::Mem p;
-        Sint increment = Src4.as<ArgSmall>().get();
+        Sint increment =
+                has_increment ? Src4.as<ArgSmall>().get() : make_small(0);
         increment -= factor * _TAG_IMMED1_SMALL;
 
         switch (factor) {
@@ -1090,8 +1139,9 @@ void BeamModuleAssembler::emit_i_mul_add(const ArgLabel &Fail,
         }
     }
 
-    if (always_small(Src1) && always_small(Src2) && always_small(Src4) &&
-        is_product_small && is_sum_small) {
+    if (always_small(Src1) && always_small(Src2) &&
+        (!has_increment || always_small(Src4)) && is_product_small &&
+        is_sum_small) {
         comment("multiplication and addition without overflow check");
         if (Src2.isSmall()) {
             mov_arg(RET, Src1);
@@ -1112,7 +1162,7 @@ void BeamModuleAssembler::emit_i_mul_add(const ArgLabel &Fail,
             a.imul(RET, ARG2);
         }
 
-        if (is_increment_zero) {
+        if (is_increment_zero || !has_increment) {
             a.or_(RET, imm(_TAG_IMMED1_SMALL));
         } else {
             mov_arg(ARG2, Src4);
@@ -1126,20 +1176,38 @@ void BeamModuleAssembler::emit_i_mul_add(const ArgLabel &Fail,
     Label next = a.new_label(), mixed = a.new_label();
 
     mov_arg(ARG2, Src1);
-    mov_arg(ARG3, Src2);
-    if (!is_increment_zero) {
+    if (!Src2.isSmall()) {
+        mov_arg(ARG3, Src2);
+    }
+
+    if (has_increment) {
         mov_arg(ARG4, Src4);
     }
 
-    if (!sometimes_small) {
-        comment("skipped test for small because one operand is never small");
+    if (always_small(Src1) && always_small(Src2) &&
+        (!has_increment || always_small(Src4))) {
+        comment("skipped test for small operands since they are always "
+                "small");
+        a.mov(RET, ARG2);
+        if (Src2.isSmall()) {
+            mov_imm(ARG5, Src2.as<ArgSmall>().getSigned());
+        } else {
+            a.mov(ARG5, ARG3);
+            a.sar(ARG5, imm(_TAG_IMMED1_SIZE));
+        }
     } else if (Src2.isSmall()) {
+        comment("test for small operands");
         Sint val = Src2.as<ArgSmall>().getSigned();
-        emit_are_both_small(mixed, Src1, ARG2, Src4, ARG4);
+        if (has_increment) {
+            emit_are_both_small(mixed, Src1, ARG2, Src4, ARG4);
+        } else {
+            emit_is_small(mixed, Src1, ARG2);
+        }
         a.mov(RET, ARG2);
         mov_imm(ARG5, val);
     } else {
-        if (is_increment_zero) {
+        comment("test for small operands");
+        if (!has_increment || always_small(Src4)) {
             emit_are_both_small(mixed, Src1, ARG2, Src2, ARG3);
         } else if (always_small(Src1)) {
             emit_are_both_small(mixed, Src2, ARG3, Src4, ARG4);
@@ -1174,7 +1242,7 @@ void BeamModuleAssembler::emit_i_mul_add(const ArgLabel &Fail,
             a.short_().jo(mixed);
         }
 
-        if (is_increment_zero) {
+        if (is_increment_zero || !has_increment) {
             a.or_(RET, imm(_TAG_IMMED1_SMALL));
         } else {
             a.add(RET, ARG4);
@@ -1191,15 +1259,19 @@ void BeamModuleAssembler::emit_i_mul_add(const ArgLabel &Fail,
     /* Call mixed multiplication. */
     a.bind(mixed);
     {
+        if (Src2.isSmall()) {
+            mov_arg(ARG3, Src2);
+        }
+
         if (Fail.get() != 0) {
-            if (is_increment_zero) {
+            if (!has_increment) {
                 safe_fragment_call(ga->get_mul_guard_shared());
             } else {
                 safe_fragment_call(ga->get_mul_add_guard_shared());
             }
             a.je(resolve_beam_label(Fail));
         } else {
-            if (is_increment_zero) {
+            if (!has_increment) {
                 safe_fragment_call(ga->get_mul_body_shared());
             } else {
                 safe_fragment_call(ga->get_mul_add_body_shared());
@@ -1535,6 +1607,17 @@ void BeamGlobalAssembler::emit_i_bnot_body_shared() {
 void BeamModuleAssembler::emit_i_bnot(const ArgLabel &Fail,
                                       const ArgSource &Src,
                                       const ArgRegister &Dst) {
+    if (always_small(Src)) {
+        comment("skipped test for small operand since it is always small");
+        mov_arg(RET, Src);
+
+        /* The complement of a small is always a small. Invert everything
+         * except the tag so we don't have to tag it again. */
+        a.xor_(RET, imm(~_TAG_IMMED1_MASK));
+        mov_arg(Dst, RET);
+        return;
+    }
+
     Label next = a.new_label();
 
     mov_arg(RET, Src);

@@ -16733,6 +16733,48 @@ if test "x$TERMCAP_LIB" != "x"; then
 
 printf "%s\n" "#define HAVE_TERMCAP 1" >>confdefs.h
 
+
+        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking whether tputs callback takes a char argument" >&5
+printf %s "checking whether tputs callback takes a char argument... " >&6; }
+        saved_CFLAGS=$CFLAGS
+        CFLAGS="-Werror $CFLAGS"
+        cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+#if defined(HAVE_NCURSES_CURSES_H)
+#  include <ncurses/curses.h>
+#  include <ncurses/term.h>
+#elif defined(HAVE_CURSES_H) && defined(HAVE_TERM_H)
+#  include <curses.h>
+#  include <term.h>
+#endif
+static int putfunc(char c) { return c; }
+
+int
+main (void)
+{
+tputs("", 1, putfunc);
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"
+then :
+  tputs_putfunc_takes_char=yes
+else case e in #(
+  e) tputs_putfunc_takes_char=no ;;
+esac
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
+        CFLAGS=$saved_CFLAGS
+        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $tputs_putfunc_takes_char" >&5
+printf "%s\n" "$tputs_putfunc_takes_char" >&6; }
+        if test "x$tputs_putfunc_takes_char" = "xyes"
+then :
+
+printf "%s\n" "#define TPUTS_PUTFUNC_TAKES_CHAR 1" >>confdefs.h
+
+fi
 fi
 
 if test "X$host" != "Xwin32"
@@ -26686,7 +26728,7 @@ fi
 
 case $OPSYS in
     linux*)
-        if test X${enable_native_stack} = Xyes; then
+        if test X${enable_native_stack} = Xyes || test X${JIT_ARCH} = Xarm; then
 
 printf "%s\n" "#define ERLANG_FRAME_POINTERS /**/" >>confdefs.h
 
@@ -30439,12 +30481,17 @@ then :
 then :
 
                         lib_bits=64
-                        arch=64
+                        case "$CONFIG_SUBTYPE" in #(
+  arm64|x64_arm64) :
+    vcarch=arm64 ;; #(
+  *) :
+    vcarch=x64 ;;
+esac
 
 else case e in #(
   e)
                         lib_bits=32
-                        arch=86
+                        vcarch=x86
                      ;;
 esac
 fi
@@ -30469,23 +30516,23 @@ then :
 
 fi
                     # openssl 3.5+
-              if test -f "$dir/lib/VC/x${arch}/MD/libcrypto_static.lib"
+              if test -f "$dir/lib/VC/${vcarch}/MD/libcrypto_static.lib"
 then :
 
                         static_crypto_lib_name=libcrypto_static
                         static_ssl_lib_name="libssl_static"
                         static_extra_libs="$static_extra_libs -lCRYPT32 -lWS2_32"
-                        static_lib_dir="$dir/lib/VC/x${arch}/MD"
+                        static_lib_dir="$dir/lib/VC/${vcarch}/MD"
                         found_static_lib=yes
 
 fi
-              if test -f "$dir/lib/VC/x${arch}/MD/libcrypto.lib"
+              if test -f "$dir/lib/VC/${vcarch}/MD/libcrypto.lib"
 then :
 
                         dynamic_crypto_lib_name=libcrypto
                         dynamic_ssl_lib_name="libssl"
-                        dynamic_runtime_lib_dir="$rdir/lib/VC/x${arch}/MD"
-                        dynamic_lib_dir="$dir/lib/VC/x${arch}/MD"
+                        dynamic_runtime_lib_dir="$rdir/lib/VC/${vcarch}/MD"
+                        dynamic_lib_dir="$dir/lib/VC/${vcarch}/MD"
                         found_dynamic_lib=yes
 
 fi
@@ -30989,12 +31036,17 @@ then :
 then :
 
                         lib_bits=64
-                        arch=64
+                        case "$CONFIG_SUBTYPE" in #(
+  arm64|x64_arm64) :
+    vcarch=arm64 ;; #(
+  *) :
+    vcarch=x64 ;;
+esac
 
 else case e in #(
   e)
                         lib_bits=32
-                        arch=86
+                        vcarch=x86
                      ;;
 esac
 fi
@@ -31019,23 +31071,23 @@ then :
 
 fi
                     # openssl 3.5+
-              if test -f "$dir/lib/VC/x${arch}/MD/libcrypto_static.lib"
+              if test -f "$dir/lib/VC/${vcarch}/MD/libcrypto_static.lib"
 then :
 
                         static_crypto_lib_name=libcrypto_static
                         static_ssl_lib_name="libssl_static"
                         static_extra_libs="$static_extra_libs -lCRYPT32 -lWS2_32"
-                        static_lib_dir="$dir/lib/VC/x${arch}/MD"
+                        static_lib_dir="$dir/lib/VC/${vcarch}/MD"
                         found_static_lib=yes
 
 fi
-              if test -f "$dir/lib/VC/x${arch}/MD/libcrypto.lib"
+              if test -f "$dir/lib/VC/${vcarch}/MD/libcrypto.lib"
 then :
 
                         dynamic_crypto_lib_name=libcrypto
                         dynamic_ssl_lib_name="libssl"
-                        dynamic_runtime_lib_dir="$rdir/lib/VC/x${arch}/MD"
-                        dynamic_lib_dir="$dir/lib/VC/x${arch}/MD"
+                        dynamic_runtime_lib_dir="$rdir/lib/VC/${vcarch}/MD"
+                        dynamic_lib_dir="$dir/lib/VC/${vcarch}/MD"
                         found_dynamic_lib=yes
 
 fi

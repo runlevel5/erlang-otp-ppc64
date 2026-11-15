@@ -95,7 +95,8 @@
 -export([check_io_debug/0]). %% For nif_SUITE.erl
 
 -include_lib("common_test/include/ct.hrl").
-
+-include_lib("stdlib/include/assert.hrl").
+-include("erts_test_utils.hrl").
 
 % First byte in communication with the timer driver
 -define(START_TIMER, 0).
@@ -134,7 +135,7 @@ all() -> %% Keep a_test first and z_test last...
     [a_test, outputv_errors, outputv_echo, queue_echo,
      {group, timer},
      driver_unloaded, io_ready_exit, otp_6602,
-     {group, polling},
+     {group, poll_default},
      {group, poll_thread},
      {group, poll_set},
      driver_system_info_base_ver,
@@ -160,6 +161,7 @@ groups() ->
     [{timer, [],
       [timer_measure, timer_cancel, timer_delay,
        timer_change]},
+     {poll_default, [], [{group, polling}]},
      {poll_thread, [], [{group, polling}]},
      {poll_set, [], [{group, polling}]},
      {polling, [],
@@ -194,7 +196,7 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     logger:remove_handler_filter(default, checkio_filter),
-    catch erts_debug:set_internal_state(available_internal_state, false),
+    erts_debug:set_internal_state(available_internal_state, false),
 
     case nodes(connected) of
         [] -> ok;
@@ -233,7 +235,7 @@ end_per_group(_GroupName, Config) ->
 init_per_testcase(Case, Config) when is_atom(Case), is_list(Config) ->
     CIOD = rpc(Config,
                fun() ->
-                       case catch erts_debug:get_internal_state(available_internal_state) of
+                       case ?Catch(erts_debug:get_internal_state(available_internal_state)) of
                            true -> ok;
                            _ -> erts_debug:set_internal_state(available_internal_state, true)
                        end,
@@ -312,7 +314,7 @@ outputv_huge_iolists() ->
 
 outputv_errors_1(Term) ->
     Port = open_port({spawn_driver,outputv_drv}, []),
-    {'EXIT',{badarg,_}} = (catch port_command(Port, Term)),
+    ?assertError(badarg, port_command(Port, Term)),
     port_close(Port).
 
 build_iolist(N, Base) when N < 16 ->
@@ -978,7 +980,7 @@ steal_control_test(Hndl = {erts_poll_info, Before}) ->
 
 chkio_test_init(Config) when is_list(Config) ->
     ChkIo = get_stable_check_io_info(),
-    case catch lists:keysearch(name, 1, ChkIo) of
+    case ?Catch(lists:keysearch(name, 1, ChkIo)) of
         {value, {name, erts_poll}} ->
             ct:log("Before test: ~p~n", [ChkIo]),
             Path = proplists:get_value(data_dir, Config),
@@ -1699,7 +1701,7 @@ otp_6879(Config) when is_list(Config) ->
 otp_6879_call(_Port, _Data, 0) ->
     ok;
 otp_6879_call(Port, Data, N) ->
-    case catch erlang:port_call(Port, 0, Data) of
+    case ?Catch(erlang:port_call(Port, 0, Data)) of
         Data -> otp_6879_call(Port, Data, N-1);
         BadData -> {mismatch, Data, BadData}
     end.
@@ -1780,8 +1782,8 @@ missing_callbacks(Config) when is_list(Config) ->
 
     Port ! {self(), {command, "tjenix"}},
     true = erlang:port_command(Port, "halloj"),
-    {'EXIT', {badarg, _}} = (catch erlang:port_control(Port, 4711, "mors")),
-    {'EXIT', {badarg, _}} = (catch erlang:port_call(Port, 17, "hej")),
+    ?assertError(badarg, erlang:port_control(Port, 4711, "mors")),
+    ?assertError(badarg, erlang:port_call(Port, 17, "hej")),
 
     %% Give the (non-existing) ready_output(), ready_input(), event(),
     %% and timeout() some time to be called.
@@ -1896,7 +1898,7 @@ lots_of_used_fds_on_boot_test(Config) ->
     %% open. This used to hang the whole VM at boot in
     %% an eternal loop trying to figure out how to size
     %% arrays in erts_poll() implementation.
-    Prog = case catch init:get_argument(progname) of
+    Prog = case ?Catch(init:get_argument(progname)) of
 	       {ok,[[P]]} -> P;
 	       _ -> exit(no_progname_argument_found)
 	   end,

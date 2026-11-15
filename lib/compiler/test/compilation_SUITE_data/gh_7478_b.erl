@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2008-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -19,24 +19,17 @@
 %%
 %% %CopyrightEnd%
 %%
--module(code_archive_dict_sup).
--behaviour(supervisor).
 
-%% Public
--export([start_link/1]).
+-module(gh_7478_b).
+-export([?MODULE/0, gh_7478_b/1]).
 
-%% Internal
--export([init/1, start_simple_child/2]).
+?MODULE() ->
+    <<>> = gh_7478_b([]),
+    <<>> = gh_7478_b([1]),
+    ok = try gh_7478_b(<<>>) catch _:_ -> ok end,
+    ok = try gh_7478_b(a) catch _:_ -> ok end,
+    ok.
 
--define(CHILD_MOD, code_archive_dict).
-
-start_link(Debug) ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, [Debug]).
-
-init([Debug]) ->
-    Flags = {simple_one_for_one, 0, 3600},
-    MFA = {?MODULE, start_simple_child, [Debug]},
-    {ok, {Flags, [{?MODULE, MFA, transient, timer:seconds(3), worker, [?CHILD_MOD]}]}}.
-
-start_simple_child(Debug, Name) ->
-    ?CHILD_MOD:start_link(Name, Debug).
+gh_7478_b(L) ->
+    <<0 || erlang:yield() and ([0 || _ <- L] =< 0),
+           <<>> <= ok >>.

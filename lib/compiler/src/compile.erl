@@ -208,6 +208,7 @@ source code.
 %% High-level interface.
 -export([file/1,file/2,noenv_file/2,format_error/1]).
 -export([forms/1,forms/2,noenv_forms/2]).
+-export([string/1,string/2,noenv_string/2]).
 -export([output_generated/1,noenv_output_generated/1]).
 -export([options/0]).
 -export([env_compiler_options/0]).
@@ -217,6 +218,9 @@ source code.
 
 %% Utility functions for compiler passes.
 -export([run_sub_passes/2]).
+
+%% Used by escript to preload the compiler modules
+-export([pre_load/0]).
 
 -export_type([option/0]).
 -export_type([forms/0]).
@@ -726,6 +730,21 @@ value are listed.
 - **`nowarn_match_alias_pats`** - Turns off warnings for matches that
     unify constructors, such as the following: `m({a,B} = {Y,Z}) -> . . .`
 
+- **`nowarn_latin1_binary`** - Turns off warnings for binary string segments
+  with characters encoded in Latin-1 rather than UTF-8, such as writing
+  `<<"Motörhead">>` instead of `<<"Motörhead"/utf8>>` or simply `~"Motörhead"`.
+
+- **`nowarn_truncated_character`** - Turns off warnings for truncated
+  characters in binary string segments due to using the default Latin-1
+  encoding, as when writing `<<"空手🙂">>` instead of `<<"空手🙂"/utf8>>` or
+  simply `~"空手🙂"`. Note that truncation causes the resulting string to have
+  seemingly random content; in this example the first version gets encoded as
+  `<<"zKB">>`.
+
+- **`nowarn_truncated_integer`** - Turns off warnings for truncated integers in
+  binary string segments when the integer is outside the specified range of the
+  segment, for example `<<256>>`, `<<150:7>>`, or `<<-130:8/signed>>`
+
 - **`nowarn_export_var_subexpr`** - Turns off warnings for exporting
   variables out of subexpressions.
 
@@ -964,15 +983,12 @@ file(File, Opts) when is_list(Opts) ->
 file(File, Opt) ->
     file(File, [Opt|?DEFAULT_OPTIONS]).
 
--doc """
-Is the same as
-[`forms(Forms, [verbose,report_errors,report_warnings])`](`forms/2`).
-""".
+-doc #{ equiv => forms(Forms, ?DEFAULT_OPTIONS) }.
 -spec forms(forms()) -> CompRet :: comp_ret().
 
 forms(Forms) -> forms(Forms, ?DEFAULT_OPTIONS).
 
--doc """
+-doc """"
 Analogous to [`file/1`](`file/1`), but takes a list of forms (in either Erlang
 abstract or Core Erlang format representation) as first argument.
 
@@ -980,7 +996,63 @@ Option `binary` is implicit, that is, no object code file is
 produced. For options that normally produce a listing file, such as
 'E', the internal format for that compiler pass (an Erlang term,
 usually not a binary) is returned instead of a binary.
-""".
+
+## Examples
+
+Parsing using `m:erl_scan` and `m:erl_parse`:
+
+```erlang
+1> Program = """
+ -module(test).
+ -export([foo/0]).
+ foo() -> bar.
+
+ """.
+2> ParseForms =
+    fun 
+        Parse("", Loc) ->
+            [];
+        Parse(String, Loc) ->
+            case erl_scan:tokens("", String, Loc) of
+                {done, {ok, Tokens, NewLoc}, Cont} ->
+                    {ok, Form} = erl_parse:parse_form(Tokens),
+                    [Form | Parse(Cont, NewLoc)]
+            end
+    end.
+3> Forms = ParseForms(Program, {1,1}).
+[{attribute,{1,2},module,test},
+ {attribute,{2,2},export,[{foo,0}]},
+ {function,{3,1},
+           foo,0,
+           [{clause,{3,1},[],[],[{atom,{3,10},bar}]}]}]
+4> compile:forms(Forms).
+{ok,test,
+    <<70,79,82,49,0,0,1,196,66,69,65,77,65,116,85,56,0,0,0,
+      52,255,255,255,250,64,116,...>>}
+```
+
+Parsing using `epp`:
+
+```erlang
+1> Program = ~"""
+ -module(test).
+ -export([foo/0]).
+ foo() -> bar.
+
+ """.
+2> {ok, IoServer} = file:open(Program, [read, binary, ram, cooked]).
+3> {ok, Forms} = epp:parse_file("test.erl", [{fd, IoServer}]).
+{ok,[{attribute,1,file,{"test.erl",1}},
+     {attribute,1,module,test},
+     {attribute,2,export,[{foo,0}]},
+     {function,3,foo,0,[{clause,3,[],[],[{atom,3,bar}]}]},
+     {eof,4}]}
+4> compile:forms(Forms).
+{ok,test,
+    <<70,79,82,49,0,0,1,196,66,69,65,77,65,116,85,56,0,0,0,
+      52,255,255,255,250,64,116,...>>}
+```
+"""".
 -spec forms(Forms :: forms(), Options :: [option()] | option()) -> CompRet :: comp_ret().
 
 forms(Forms, Opts) when is_list(Opts) ->
@@ -1031,6 +1103,57 @@ noenv_forms(Forms, Opts) when is_list(Opts) ->
     do_compile({forms,Forms}, [binary|Opts]);
 noenv_forms(Forms, Opt) when is_atom(Opt) ->
     noenv_forms(Forms, [Opt|?DEFAULT_OPTIONS]).
+
+-doc #{ equiv => string(String, []) }.
+-doc #{ since => <<"OTP @OTP-20337@">> }.
+-spec string(String :: unicode:chardata()) -> CompRet :: comp_ret().
+string(String) -> string(String, ?DEFAULT_OPTIONS).
+
+-doc """
+Compiles an Erlang source code string.
+
+Analogous to [`file/1`](`file/1`), but takes a `t:unicode:chardata/0` containing
+Erlang source code as first argument. The source code is run through the
+Erlang preprocessor (`epp`) just as when compiling a file, so directives
+such as `-include`, `-define`, and `-ifdef` are supported.
+
+Option `binary` is implicit, that is, no object code file is
+produced. For options that normally produce a listing file, such as
+'E', the internal format for that compiler pass (an Erlang term,
+usually not a binary) is returned instead of a binary.
+
+The `{include_path_open, Fun}` option can be used to provide a custom function
+for opening include files (see `epp:open/1`), allowing compilation
+entirely in memory without touching the file system.
+
+## Examples
+
+```erlang
+1> {ok, foo, Bin} = compile:string("-module(foo). -export([bar/0]). bar() -> ok.").
+{ok,foo,<<...>>}
+2> code:load_binary(foo, "foo.erl", Bin).
+{module, foo}
+3> foo:bar().
+ok
+```
+""".
+-doc #{ since => <<"OTP @OTP-20337@">> }.
+-spec string(String :: unicode:chardata(), Options :: [option()] | option()) ->
+          CompRet :: comp_ret().
+string(String, Opts) when is_list(Opts) ->
+    do_compile({string,String}, [binary|Opts++env_default_opts()]);
+string(String, Opt) when is_atom(Opt) ->
+    string(String, [Opt|?DEFAULT_OPTIONS]).
+
+-doc #{ equiv => noenv_string(String, []) }.
+-doc #{ since => <<"OTP @OTP-20337@">> }.
+-spec noenv_string(String :: unicode:chardata(), Options :: [option()] | option()) ->
+          comp_ret().
+
+noenv_string(String, Opts) when is_list(Opts) ->
+    do_compile({string,String}, [binary|Opts]);
+noenv_string(String, Opt) when is_atom(Opt) ->
+    noenv_string(String, [Opt|?DEFAULT_OPTIONS]).
 
 -doc """
 Works like `output_generated/1`, except that the environment variable
@@ -1173,10 +1296,12 @@ expand_opt(report, Os) ->
     [report_errors,report_warnings|Os];
 expand_opt(return, Os) ->
     [return_errors,return_warnings|Os];
-expand_opt(r26, Os) ->
-    [no_bsm_opt | expand_opt(r27, Os)];
+expand_opt(r29, Os) ->
+    [no_native_record_opt|Os];
+expand_opt(r28, Os) ->
+    expand_opt(r29, Os);
 expand_opt(r27, Os) ->
-    [no_long_atoms, compressed_literals | Os];
+    [no_long_atoms, compressed_literals | expand_opt(r28, Os)];
 expand_opt(beam_debug_info, Os) ->
     [beam_debug_info, no_copt, no_bsm_opt, no_bool_opt,
      no_share_opt, no_recv_opt, no_ssa_opt, no_throw_opt | Os];
@@ -1257,19 +1382,19 @@ format_error_reason(Class, Reason, Stack) ->
     erl_error:format_exception(Class, Reason, Stack, Opts).
 
 %% The compile state record.
--record(compile, {filename=""      :: file:filename(),
-                  dir=""           :: file:filename(),
-                  base=""          :: file:filename(),
-                  ifile=""         :: file:filename(),
-                  ofile=""         :: file:filename(),
-                  module=[]        :: module() | [],
-                  abstract_code=[] :: abstract_code(), %Abstract code for debugger.
-                  options=[]       :: [option()],  %Options for compilation
-                  mod_options=[]   :: [option()], %Options for module_info
-                  encoding=none    :: none | epp:source_encoding(),
-                  errors=[]        :: errors(),
-                  warnings=[]      :: warnings(),
-                  extra_chunks=[]  :: [{binary(), binary()}]}).
+-record #compile{filename=""      :: file:filename(),
+                 dir=""           :: file:filename(),
+                 base=""          :: file:filename(),
+                 ifile=""         :: file:filename(),
+                 ofile=""         :: file:filename(),
+                 module=[]        :: module() | [],
+                 abstract_code=[] :: abstract_code(), %Abstract code for debugger.
+                 options=[]       :: [option()],  %Options for compilation
+                 mod_options=[]   :: [option()], %Options for module_info
+                 encoding=none    :: none | epp:source_encoding(),
+                 errors=[]        :: errors(),
+                 warnings=[]      :: warnings(),
+                 extra_chunks=[]  :: [{binary(), binary()}]}.
 
 internal({forms,Forms}, Opts0) ->
     {_,Ps} = passes(forms, Opts0),
@@ -1283,6 +1408,14 @@ internal({forms,Forms}, Opts0) ->
                        strip_columns(Forms)
                end,
     internal_comp(Ps, NewForms, Source, "", Compile);
+internal({string,String}, Opts0) ->
+    Bin = unicode:characters_to_binary(String),
+    {ok, Fd} = file:open(Bin, [ram, read, binary, cooked]),
+    try
+        do_parse_string(Fd, Opts0)
+    after
+        file:close(Fd)
+    end;
 internal({file,File}, Opts) ->
     {Ext,Ps} = passes(file, Opts),
     Compile = build_compile(Opts),
@@ -1914,12 +2047,12 @@ remove_file(Code, St) ->
     _ = file:delete(St#compile.ofile),
     {ok,Code,St}.
 
--record(asm_module, {module,
-		     exports,
-		     labels,
-		     functions=[],
-		     attributes=[],
-                     anno=#{}}).
+-record #asm_module{module='',
+                    exports=none,
+                    labels=none,
+                    functions=[],
+                    attributes=[],
+                    anno=#{}}.
 
 preprocess_asm_forms(Forms) ->
     R0 = #asm_module{},
@@ -1985,6 +2118,71 @@ parse_module(_Code, St) ->
 	{error,_}=Ret ->
 	    Ret
     end.
+
+do_parse_string(Fd, Opts0) ->
+    StartLocation = case with_columns(Opts0) of
+                        true ->
+                            {1,1};
+                        false ->
+                            1
+                    end,
+    case erl_features:init_parse_state(Opts0, fun erl_scan:f_reserved_word/1) of
+        {ok, {Features, ResWordFun}} ->
+            PathOpenOpt = case proplists:get_value(include_path_open, Opts0) of
+                              undefined -> [];
+                              PathOpenFun -> [{include_path_open, PathOpenFun}]
+                          end,
+            Name = proplists:get_value(source, Opts0, "string"),
+            EppOpts = [{fd, Fd},
+                       {name, Name},
+                       {includes, ["." | inc_paths(Opts0)]},
+                       {macros, pre_defs(Opts0)},
+                       {default_encoding, utf8},
+                       {location, StartLocation},
+                       {reserved_word_fun, ResWordFun},
+                       {features, Features},
+                       extra |
+                       PathOpenOpt ++
+                       case member(check_ssa, Opts0) of
+                           true ->
+                               [{compiler_internal, [ssa_checks]}];
+                           false ->
+                               []
+                       end],
+            {ok, Epp, Extra0} = epp:open(EppOpts),
+            try
+                Forms0 = epp:parse_file(Epp),
+                Epp ! {get_features, self()},
+                UsedFtrs = receive {features, X} -> X end,
+                Extra = [{features, UsedFtrs} | Extra0],
+                Encoding = proplists:get_value(encoding, Extra),
+                {_, Ps} = passes(forms, Opts0),
+                Source = proplists:get_value(source, Opts0, source_from_forms(Forms0)),
+                Opts1 = proplists:delete(source, Opts0),
+                Compile0 = build_compile(Opts1),
+                St0 = metadata_add_features(UsedFtrs, Compile0),
+                Opts2 = [{features, UsedFtrs} | St0#compile.options],
+                St1 = St0#compile{encoding=Encoding, options=Opts2},
+                Forms = case with_columns(Opts2 ++ compile_options(Forms0)) of
+                            true ->
+                                Forms0;
+                            false ->
+                                strip_columns(Forms0)
+                        end,
+                internal_comp(Ps, Forms, Source, "", St1)
+            after
+                epp:close(Epp)
+            end;
+        {error, {Mod, Reason}} ->
+            Source = proplists:get_value(source, Opts0, "string"),
+            Es = [{Source, [{none, Mod, Reason}]}],
+            {error, {errors, Es, []}}
+    end.
+
+source_from_forms([{attribute,_,module,Mod}|_]) ->
+    atom_to_list(Mod) ++ ".erl";
+source_from_forms([_|T]) -> source_from_forms(T);
+source_from_forms([]) -> "string".
 
 deterministic_filename(#compile{ifile=File,options=Opts}) ->
     SourceName0 = proplists:get_value(source, Opts, File),
@@ -2510,6 +2708,7 @@ is_obsolete(r22) -> true;
 is_obsolete(r23) -> true;
 is_obsolete(r24) -> true;
 is_obsolete(r25) -> true;
+is_obsolete(r26) -> true;
 is_obsolete(no_badrecord) -> true;
 is_obsolete(no_bs_create_bin) -> true;
 is_obsolete(no_bs_match) -> true;
@@ -3101,7 +3300,7 @@ rel2fam(S0) ->
 -spec compile(file:filename(), _, #options{}) -> 'ok' | 'error'.
 
 compile(File0, _OutFile, Options) ->
-    pre_load(),
+    _ = code:ensure_modules_loaded(pre_load()),
     File = shorten_filename(File0),
     case file(File, make_erl_options(Options)) of
 	{ok,_Mod} -> ok;
@@ -3169,52 +3368,54 @@ make_erl_options(Opts) ->
     Options ++ [report_errors, {cwd, Cwd}, {outdir, Outdir} |
                 [{i, Dir} || Dir <- Includes]] ++ Specific.
 
+-doc false.
+-spec pre_load() -> [module()].
 pre_load() ->
-    L = [beam_a,
-	 beam_asm,
-	 beam_block,
-	 beam_call_types,
-	 beam_clean,
-         beam_core_to_ssa,
-	 beam_dict,
-         beam_doc,
-	 beam_flatten,
-	 beam_jump,
-	 beam_opcodes,
-	 beam_ssa,
-	 beam_ssa_alias,
-	 beam_ssa_bc_size,
-	 beam_ssa_bool,
-	 beam_ssa_bsm,
-	 beam_ssa_codegen,
-	 beam_ssa_dead,
-         beam_ssa_destructive_update,
-	 beam_ssa_opt,
-	 beam_ssa_pre_codegen,
-	 beam_ssa_recv,
-	 beam_ssa_share,
-	 beam_ssa_ss,
-	 beam_ssa_throw,
-	 beam_ssa_type,
-	 beam_trim,
-	 beam_types,
-	 beam_utils,
-	 beam_validator,
-	 beam_z,
-	 cerl,
-	 cerl_clauses,
-	 cerl_trees,
-	 core_lib,
-	 epp,
-	 erl_bifs,
-	 erl_expand_records,
-         erl_features,
-	 erl_lint,
-	 erl_parse,
-	 erl_scan,
-	 sys_core_alias,
-	 sys_core_bsm,
-	 sys_core_fold,
-	 v3_core],
-    _ = code:ensure_modules_loaded(L),
-    ok.
+    [beam_a,
+     beam_asm,
+     beam_block,
+     beam_call_types,
+     beam_clean,
+     beam_core_to_ssa,
+     beam_dict,
+     beam_doc,
+     beam_flatten,
+     beam_jump,
+     beam_opcodes,
+     beam_ssa,
+     beam_ssa_alias,
+     beam_ssa_bc_size,
+     beam_ssa_bool,
+     beam_ssa_bsm,
+     beam_ssa_codegen,
+     beam_ssa_dead,
+     beam_ssa_destructive_update,
+     beam_ssa_opt,
+     beam_ssa_pre_codegen,
+     beam_ssa_recv,
+     beam_ssa_share,
+     beam_ssa_ss,
+     beam_ssa_throw,
+     beam_ssa_type,
+     beam_trim,
+     beam_types,
+     beam_utils,
+     beam_validator,
+     beam_z,
+     cerl,
+     cerl_clauses,
+     cerl_trees,
+     core_lib,
+     epp,
+     erl_bifs,
+     erl_expand_records,
+     erl_features,
+     erl_lint,
+     erl_parse,
+     erl_scan,
+     gb_trees,
+     graph,
+     sys_core_alias,
+     sys_core_bsm,
+     sys_core_fold,
+     v3_core].

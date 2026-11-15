@@ -486,11 +486,18 @@ init_ssh_record(Role, Socket, PeerAddr, Opts) ->
 	    S0#ssh{s_vsn = Vsn,
 		   s_version = Version,
 		   userauth_methods = string:tokens(AuthMethods, ","),
-		   kb_tries_left = 3,
+                   auth_tries_left = get_max_auth_tries(Opts),
 		   peer = {undefined, PeerAddr},
                    local = LocalName
 		  }
     end.
+
+get_max_auth_tries(Opts) ->
+    case ?GET_OPT(max_auth_tries, Opts) of
+        infinity -> infinity;
+        N when is_integer(N) -> N
+    end.
+
 
 handshake(ConnPid, server, Ref, Timeout) ->
     receive
@@ -1336,15 +1343,15 @@ handle_event(info, {fwd_connect_received, Sock, ChId, ChanCB}, StateName, #data{
     %% crashing the connection handler.
     case ssh_client_channel:cache_lookup(Cache, ChId) of
         #channel{} = Channel ->
-	    case ssh_connection_sup:start_channel(?role(StateName), ConnectionSup, self(), ChanCB, ChId, [Sock], undefined) of
-		{ok, Pid} ->
-		    ssh_client_channel:cache_update(Cache, Channel#channel{user=Pid}),
-		    gen_tcp:controlling_process(Sock, Pid),
-		    inet:setopts(Sock, [{active,once}]);
-		{error, _Reason} ->
-		    %% Refuse connection; limit handled via {fwd_connect_failed,...}.
-		    gen_tcp:close(Sock)
-	    end;
+            case ssh_connection_sup:start_channel(?role(StateName), ConnectionSup, self(), ChanCB, ChId, [Sock], undefined) of
+                {ok, Pid} ->
+                    ssh_client_channel:cache_update(Cache, Channel#channel{user=Pid}),
+                    gen_tcp:controlling_process(Sock, Pid),
+                    inet:setopts(Sock, [{active,once}]);
+                {error, _Reason} ->
+                    %% Refuse connection; limit handled via {fwd_connect_failed,...}.
+                    gen_tcp:close(Sock)
+            end;
         undefined ->
             gen_tcp:close(Sock)
     end,
@@ -1477,6 +1484,26 @@ handle_packet_part_result({packet_decrypted, DecryptedBytes, EncryptedDataRest, 
         #ssh_msg_channel_request{}           = Msg -> {keep_state, D1, ?CONNECTION_MSG(Msg)};
         #ssh_msg_channel_failure{}           = Msg -> {keep_state, D1, ?CONNECTION_MSG(Msg)};
         #ssh_msg_channel_success{}           = Msg -> {keep_state, D1, ?CONNECTION_MSG(Msg)};
+
+
+        #ssh_msg_userauth_request{} = Msg ->
+            DecryptedSize = byte_size(DecryptedBytes),
+            case ?GET_OPT(max_auth_request_size, (D1#data.ssh_params)#ssh.opts) of
+                MaxAuthRequestSize when DecryptedSize > MaxAuthRequestSize ->
+                    DetailedMsg = io_lib:format("Auth length exceeded, message has ~B bytes"
+                                                " and the maximum is ~B bytes.",
+                                                [DecryptedSize, MaxAuthRequestSize]),
+                    {Shutdown, D} =
+                        ?send_disconnect(?SSH_DISCONNECT_PROTOCOL_ERROR,
+                                         "Auth length exceeded.",
+                                         DetailedMsg,
+                                         StateName, D1),
+                    {stop, Shutdown, D};
+                _ ->
+                    {keep_state, D1, [{next_event, internal, prepare_next_packet},
+                                      {next_event, internal, Msg}
+                                     ]}
+            end;
 
         Msg ->
             {keep_state, D1, [{next_event, internal, prepare_next_packet},

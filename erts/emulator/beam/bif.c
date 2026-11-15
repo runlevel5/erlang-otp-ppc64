@@ -1376,16 +1376,16 @@ BIF_RETTYPE hibernate_3(BIF_ALIST_3)
         BIF_ERROR(BIF_P, BADARG);
     }
 
-    while (is_list(args) && arity <= MAX_ARG) {
-        args = CDR(list_val(args));
-        arity++;
+    while (is_list(args)) {
+        if (arity < MAX_ARG) {
+            args = CDR(list_val(args));
+            arity++;
+        } else {
+            BIF_ERROR(BIF_P, SYSTEM_LIMIT);
+        }
     }
 
     if (is_not_nil(args)) {
-        if (arity > MAX_ARG) {
-            BIF_ERROR(BIF_P, SYSTEM_LIMIT);
-        }
-
         BIF_ERROR(BIF_P, BADARG);
     }
 
@@ -2240,7 +2240,7 @@ typedef struct {
     Eterm flag;
     Eterm value;
     ErlOffHeap oh;
-    Eterm heap[1];
+    Eterm heap[];
 } ErtsProcessFlag3Args;
 
 static Eterm
@@ -2279,7 +2279,7 @@ BIF_RETTYPE erts_internal_process_flag_3(BIF_ALIST_3)
 
    pf3a = erts_alloc(ERTS_ALC_T_PF3_ARGS,
                      sizeof(ErtsProcessFlag3Args)
-                     + sizeof(Eterm)*(flag_sz+value_sz-1));
+                     + sizeof(Eterm)*(flag_sz+value_sz));
 
    ohp = &pf3a->oh;
    ERTS_INIT_OFF_HEAP(&pf3a->oh);
@@ -3125,6 +3125,10 @@ BIF_RETTYPE insert_element_3(BIF_ALIST_3)
 
     if ((ix < 1) || (ix > (arity + 1))) {
 	BIF_ERROR(BIF_P, BADARG);
+    }
+
+    if (arity + 1 > ERTS_MAX_TUPLE_SIZE) {
+        BIF_ERROR(BIF_P, BADARG);
     }
 
     hp  = HAlloc(BIF_P, arity + 1 + 1);
@@ -4273,9 +4277,12 @@ BIF_RETTYPE display_string_2(BIF_ALIST_2)
         written = 0;
         do {
             res = write(fd, str+written, len-written);
-            if (res < 0 && errno != ERRNO_BLOCK && errno != EINTR)
-                goto error;
-            written += res;
+            if (res < 0) {
+                if (errno != ERRNO_BLOCK && errno != EINTR)
+                    goto error;
+            } else {
+                written += res;
+            }
         } while (written < len);
 #endif
     }
@@ -4745,7 +4752,8 @@ BIF_RETTYPE list_to_ref_1(BIF_ALIST_1)
         n++;
         if (ints[i] > ~((Uint32) 0)) goto bad;
         if (*cp == '>') break;
-        if (*cp++ != '.') goto bad;
+        /* We don't find a ., or we are on the last position and do find a dot */
+        if (*cp++ != '.' || i == sizeof(ints)/sizeof(Uint) - 1) goto bad;
     }
 
     if (*cp++ != '>') goto bad;
@@ -4846,6 +4854,49 @@ BIF_RETTYPE list_to_ref_1(BIF_ALIST_1)
     BIF_ERROR(BIF_P, BADARG);
 }
 
+/**********************************************************************/
+
+/* Can only be used to produce binary in the human-readable text form,
+ * e.g. <<"<0.1.0>">>.
+ */
+
+static Eterm
+term2binary_dsprintf(Process *p, Eterm term)
+{
+    int pres;
+    Eterm res;
+    erts_dsprintf_buf_t *dsbufp = erts_create_tmp_dsbuf(64);       
+    pres = erts_dsprintf(dsbufp, "%T", term);
+    if (pres < 0)
+        erts_exit(ERTS_ERROR_EXIT, "Failed to convert term to binary: %d (%s)\n",
+                 -pres, erl_errno_id(-pres));
+
+    res = erts_new_binary_from_data(p, (Uint)dsbufp->str_len, (byte*)dsbufp->str);
+    erts_destroy_tmp_dsbuf(dsbufp);
+    return res;
+}
+
+BIF_RETTYPE pid_to_binary_1(BIF_ALIST_1)
+{
+    if (is_not_pid(BIF_ARG_1))
+        BIF_ERROR(BIF_P, BADARG);
+    BIF_RET(term2binary_dsprintf(BIF_P, BIF_ARG_1));
+}
+
+BIF_RETTYPE port_to_binary_1(BIF_ALIST_1)
+{
+    if (is_not_port(BIF_ARG_1))
+        BIF_ERROR(BIF_P, BADARG);
+    BIF_RET(term2binary_dsprintf(BIF_P, BIF_ARG_1));
+}
+
+BIF_RETTYPE ref_to_binary_1(BIF_ALIST_1)
+{
+    if (is_not_ref(BIF_ARG_1))
+        BIF_ERROR(BIF_P, BADARG);
+    erts_magic_ref_save_bin(BIF_ARG_1);
+    BIF_RET(term2binary_dsprintf(BIF_P, BIF_ARG_1));
+}
 
 /**********************************************************************/
 
@@ -5414,8 +5465,18 @@ BIF_RETTYPE bump_reductions_1(BIF_ALIST_1)
     BIF_RET2(am_true, reds);
 }
 
-BIF_RETTYPE erts_internal_cmp_term_2(BIF_ALIST_2) {
-    Sint res = CMP_TERM(BIF_ARG_1,BIF_ARG_2);
+BIF_RETTYPE erts_internal_cmp_term_4(BIF_ALIST_4) {
+    Sint res, exact, eq_only;
+
+    if ((BIF_ARG_3 != am_true && BIF_ARG_3 != am_false) ||
+        (BIF_ARG_4 != am_true && BIF_ARG_4 != am_false)) {
+        BIF_ERROR(BIF_P, BADARG);
+    }
+
+    exact = (BIF_ARG_3 == am_true) ? 1 : 0;
+    eq_only = (BIF_ARG_4 == am_true) ? 1 : 0;
+    
+    res = erts_cmp(BIF_ARG_1, BIF_ARG_2, exact, eq_only);
 
     /* ensure -1, 0, 1 result */
     if (res < 0) {
@@ -6011,13 +6072,10 @@ BIF_RETTYPE dt_append_vm_tag_data_1(BIF_ALIST_1)
     if (p) {
         byte *q;
         Uint i;
-        p = erts_get_aligned_binary_bytes(DT_UTAG(BIF_P),
-                                          &size,
-                                          &temp_alloc);
         b = erts_new_binary(BIF_P, size + 1, &q);
         for(i = 0; i < size; i++) {
             q[i] = p[i];
-        } 
+        }
         erts_free_aligned_binary_bytes(temp_alloc);
         q[size] = '\0';
     } else {

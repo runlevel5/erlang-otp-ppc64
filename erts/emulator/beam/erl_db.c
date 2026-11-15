@@ -1508,6 +1508,7 @@ do_update_counter(Process *p, DbTable* tb,
     Eterm* htop;          /* actual heap usage */
     Eterm* hstart;
     Eterm* hend;
+    Uint largest_big_arity = 0;
     ERTS_UNDEF(ret, THE_NON_VALUE);
 
     UseTmpHeap(5, p);
@@ -1573,10 +1574,10 @@ do_update_counter(Process *p, DbTable* tb,
 		goto finalize;
 	    }
 	    incr = tpl[2];
-	    if (is_big(incr)) {
-		halloc_size += BIG_NEED_SIZE(big_arity(incr));
+            if (is_big(incr) && largest_big_arity < big_arity(incr)) {
+                largest_big_arity = big_arity(incr);
 	    }
-	    else if (is_not_small(incr)) {
+            else if (is_not_integer(incr)) {
 		goto finalize;
 	    }
 	    position = signed_val(tpl[1]);
@@ -1591,12 +1592,16 @@ do_update_counter(Process *p, DbTable* tb,
 		goto finalize;
 	    }
 	    oldcnt = db_do_read_element(&handle, position);
-	    if (is_big(oldcnt)) {
-		halloc_size += BIG_NEED_SIZE(big_arity(oldcnt));
+            if (is_big(oldcnt) && largest_big_arity < big_arity(oldcnt)) {
+                largest_big_arity = big_arity(oldcnt);
 	    }
-	    else if (is_not_small(oldcnt)) {
+            else if (is_not_integer(oldcnt)) {
 		goto finalize;
 	    }
+            if (largest_big_arity > 0) {
+                halloc_size += BIG_NEED_SIZE(largest_big_arity);
+            }
+            
 	    break;
 	default:
 	    goto finalize;
@@ -3050,14 +3055,19 @@ BIF_RETTYPE ets_delete_1(BIF_ALIST_1)
         save_owned_table(BIF_P, tb);
     }
 
-    if (is_table_named(tb))
+    /* All fixations must be unlinked before table lock is released
+     * or tid is cleared. See proc_cleanup_fixed_table(). */
+    reds -= free_fixations_locked(BIF_P, tb);
+
+    if (is_table_named(tb)) {
+        /* Note that remove_named_tab() may unlock and relock table. */
 	remove_named_tab(tb, 0);
+    }
     
     /* disable inheritance */
     free_heir_data(tb);
     tb->common.heir = am_none;
 
-    reds -= free_fixations_locked(BIF_P, tb);
     tid_clear(BIF_P, tb);
     db_unlock(tb, LCK_WRITE);
 
@@ -5005,6 +5015,9 @@ static SWord proc_cleanup_fixed_table(Process* p, DbFixation* fix)
 	    ASSERT(sizeof(DbFixation) == ERTS_ALC_DBG_BLK_SZ(fix));
 	    ERTS_DB_ALC_MEM_UPDATE_(tb, sizeof(DbFixation), 0);
 	}
+        else {
+            ASSERT(tb->common.fixing_procs == NULL);
+        }
 	db_unlock(tb, LCK_WRITE_REC);
     }
 
@@ -5085,11 +5098,16 @@ erts_db_process_exiting(Process *c_p, ErtsProcLocks c_p_locks, void **yield_stat
             tb->common.status |= DB_DELETE;
             cancel_trap_continuation(tb);
 
-            if (is_table_named(tb))
+            /* All fixations must be unlinked before table lock is released
+             * or tid is cleared. See proc_cleanup_fixed_table(). */
+            reds -= free_fixations_locked(c_p, tb);
+
+            if (is_table_named(tb)) {
+                /* Note that remove_named_tab() may unlock and relock table. */
                 remove_named_tab(tb, 0);
+            }
 
             free_heir_data(tb);
-            reds -= free_fixations_locked(c_p, tb);
             tid_clear(c_p, tb);
             db_unlock(tb, LCK_WRITE);
             state->op = FREE_OWNED_TABLE;

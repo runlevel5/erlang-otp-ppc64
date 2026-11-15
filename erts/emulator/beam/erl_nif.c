@@ -632,7 +632,7 @@ struct enif_msg_environment_t
     Process phony_proc;
 };
 
-static Eterm phony_heap[32];
+static const Eterm phony_heap[32];
 
 static ERTS_INLINE void
 setup_nif_env(struct enif_msg_environment_t* msg_env,
@@ -641,18 +641,18 @@ setup_nif_env(struct enif_msg_environment_t* msg_env,
 {
     ASSERT(sizeof(phony_heap) > (S_REDZONE * sizeof(Eterm)));
 
-    msg_env->env.hp = &phony_heap[0];
-    msg_env->env.hp_end = &phony_heap[0];
+    msg_env->env.hp = (Eterm*) &phony_heap[0];
+    msg_env->env.hp_end = (Eterm*) &phony_heap[0];
     msg_env->env.heap_frag = NULL;
     msg_env->env.mod_nif = mod;
     msg_env->env.tmp_obj_list = NULL;
     msg_env->env.proc = &msg_env->phony_proc;
     msg_env->env.exception_thrown = 0;
     sys_memset(&msg_env->phony_proc, 0, sizeof(Process));
-    HEAP_START(&msg_env->phony_proc) = &phony_heap[0];
-    HEAP_TOP(&msg_env->phony_proc) = &phony_heap[0];
-    STACK_TOP(&msg_env->phony_proc) = &phony_heap[S_REDZONE];
-    STACK_START(&msg_env->phony_proc) = &phony_heap[S_REDZONE];
+    HEAP_START(&msg_env->phony_proc) = (Eterm*) &phony_heap[0];
+    HEAP_TOP(&msg_env->phony_proc) = (Eterm*) &phony_heap[0];
+    STACK_TOP(&msg_env->phony_proc) = (Eterm*) &phony_heap[S_REDZONE];
+    STACK_START(&msg_env->phony_proc) = (Eterm*) &phony_heap[S_REDZONE];
     MBUF(&msg_env->phony_proc) = NULL;
     msg_env->phony_proc.common.id = ERTS_INVALID_PID;
     msg_env->env.tracee = tracee;
@@ -3203,60 +3203,81 @@ ERL_NIF_TERM enif_make_resource(ErlNifEnv* env, void* obj)
     return erts_mk_magic_ref(&hp, &MSO(env->proc), &bin->binary);
 }
 
+typedef struct {
+    Binary *binary;
+} ResourceBinaryWrapper;
+
+static int resource_binary_wrapper_dtor(Binary *mbp)
+{
+    ResourceBinaryWrapper *wrapper;
+
+    ASSERT(ERTS_MAGIC_BIN_DESTRUCTOR(mbp) == resource_binary_wrapper_dtor);
+    wrapper = (ResourceBinaryWrapper *)ERTS_MAGIC_BIN_DATA(mbp);
+
+    erts_bin_release(wrapper->binary);
+
+    return 1;
+}
+
 ERL_NIF_TERM enif_make_resource_binary(ErlNifEnv* env, void* obj,
                                        const void* data, size_t size)
 {
-    ErtsResource* resource = DATA_TO_RESOURCE(obj);
-    ErtsBinary* bin = ERTS_MAGIC_BIN_FROM_UNALIGNED_DATA(resource);
+    ResourceBinaryWrapper *wrapper;
+    ErtsResource *resource;
+    Binary *magic;
     Eterm* hp;
 
-    erts_refc_inc(&bin->binary.intern.refc, 1);
+    resource = DATA_TO_RESOURCE(obj);
+
+    /* If we refer to the resource binary directly, it becomes impossible to
+     * accurately keep track of the virtual heap pressure of these binaries.
+     *
+     * Therefore, we create a bogus magic binary wrapper with the proper memory
+     * pressure that extends the lifetime of the resource, and calls the
+     * resource destructor when all binaries have been destroyed.
+     *
+     * Keep in mind that this means that the produced binary no longer acts as
+     * a handle for the `obj' resource as far as the NIF API is concerned,
+     * which was never documented nor intended. */
+    magic = erts_create_magic_binary(sizeof(ResourceBinaryWrapper*),
+                                       &resource_binary_wrapper_dtor);
+    erts_refc_inc(&magic->intern.refc, 1);
+    magic->orig_size += size;
+
+    wrapper = (ResourceBinaryWrapper*)ERTS_MAGIC_BIN_DATA(magic);
+    wrapper->binary = &(ERTS_MAGIC_BIN_FROM_UNALIGNED_DATA(resource))->binary;
+    erts_refc_inc(&(wrapper->binary)->intern.refc, 2);
 
     hp = alloc_heap(env, ERL_REFC_BITS_SIZE);
     return erts_wrap_refc_bitstring(&MSO(env->proc).first,
                                     &MSO(env->proc).overhead,
                                     &hp,
-                                    &bin->binary,
+                                    magic,
                                     (byte*)data,
                                     0,
                                     NBITS(size));
 }
 
 int enif_get_resource(ErlNifEnv* env, ERL_NIF_TERM term, ErlNifResourceType* type,
-		      void** objp)
+                      void** objp)
 {
-    Binary* mbin;
     ErtsResource* resource;
-    if (is_internal_magic_ref(term)) {
-        mbin = erts_magic_ref2bin(term);
-    } else {
-        ERTS_DECLARE_DUMMY(const byte *base);
-        ERTS_DECLARE_DUMMY(Uint offset);
-        ERTS_DECLARE_DUMMY(Uint size);
-        ERTS_DECLARE_DUMMY(Eterm br_flags);
-        BinRef *br;
+    Binary* mbin;
 
-        if (!is_bitstring(term)) {
-            return 0;
-        }
-
-        ERTS_GET_BITSTRING_REF(term, br_flags, br, base, offset, size);
-
-        if (br == NULL) {
-            return 0;
-        }
-
-        mbin = br->val;
-        if (!(mbin->intern.flags & BIN_FLAG_MAGIC)) {
-            return 0;
-        }
+    if (!is_internal_magic_ref(term)) {
+        return 0;
     }
+
+    mbin = erts_magic_ref2bin(term);
+
+    ASSERT(mbin->intern.flags & BIN_FLAG_MAGIC);
 
     resource = (ErtsResource*) ERTS_MAGIC_BIN_UNALIGNED_DATA(mbin);
     if (ERTS_MAGIC_BIN_DESTRUCTOR(mbin) != NIF_RESOURCE_DTOR
         || resource->type != type) {
         return 0;
     }
+
     *objp = resource->data;
     return 1;
 }
@@ -4046,7 +4067,7 @@ ErlNifIOQueue *enif_ioq_create(ErlNifIOQueueOpts opts)
 
     q = enif_alloc(sizeof(ErlNifIOQueue));
     if (!q) return NULL;
-    erts_ioq_init(q, ERTS_ALC_T_NIF, 0);
+    erts_ioq_init(q, ERTS_ALC_T_NIF, false);
 
     return q;
 }

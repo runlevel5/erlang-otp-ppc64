@@ -36,14 +36,14 @@ permissions:
 
 jobs:
   upload-windows-zip:
-    runs-on: windows-2025
+    runs-on: ${{ inputs.target == 'arm64' && 'windows-11-arm' || 'windows-2025' }}
     ## Needed to upload assets to releases
     permissions:
         contents: write
     env:
       BASENAME: otp_${{ inputs.target }}_${{ inputs.version }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -67,8 +67,11 @@ jobs:
             win64)
               vc_redist_target=x64
               ;;
+            arm64)
+              vc_redist_target=arm64
+              ;;
             *)
-              echo "invalid target $target"
+              echo "invalid target ${INPUTS_TARGET}"
               exit 1
               ;;
           esac

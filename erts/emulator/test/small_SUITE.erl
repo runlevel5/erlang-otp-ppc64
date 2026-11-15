@@ -27,13 +27,15 @@
 -export([edge_cases/1,
          addition/1, subtraction/1, negation/1,
          multiplication/1, mul_add/1, division/1,
-         test_bitwise/1, test_bsl/1, test_bsr/1,
+         test_bitwise/1, test_bnot/1, test_bsl/1, test_bsr/1,
          element/1,
          range_optimization/1,
          confused_squaring/1]).
 -export([mul_add/0, division/0]).
 
 -include_lib("common_test/include/ct.hrl").
+-include_lib("stdlib/include/assert.hrl").
+-include("erts_test_utils.hrl").
 
 suite() ->
     [{ct_hooks,[ts_install_cth]},
@@ -46,7 +48,7 @@ groups() ->
     [{p, [parallel],
       [edge_cases,
        addition, subtraction, negation, multiplication, mul_add, division,
-       test_bitwise, test_bsl, test_bsr,
+       test_bitwise, test_bnot, test_bsl, test_bsr,
        element,
        range_optimization,
        confused_squaring]}].
@@ -237,7 +239,7 @@ test_addition([], _) ->
     ok.
 
 bad_arith(F, A, B) ->
-    {'EXIT',{badarith,_}} = catch F(number1, A, B),
+    ?assertError(badarith, F(number1, A, B)),
     ok.
 
 %% Test that the JIT only omits the overflow check when it's safe.
@@ -403,6 +405,16 @@ test_negation([], _) ->
 
 %% Test that the JIT only omits the overflow check when it's safe.
 multiplication(_Config) ->
+    %% Exercise power-of-two multiplication without an increment. On ARM,
+    %% the tag correction for 256 fits in an immediate, while 512 does not.
+    -1792 = mul_pow2_imm12(id(-7)),
+    3584 = mul_pow2_large(id(7)),
+    -3584 = mul_pow2_large(id(-7)),
+    21 = mul_small(id(7), id(3)),
+    21 = mul_small(id(-7), id(-3)),
+    ?assertError(badarith, multiply(id(not_a_number), id(2))),
+    false = multiply_guard(id(not_a_number), id(2)),
+
     _ = rand:uniform(),				%Seed generator
     io:format("Seed: ~p", [rand:export_seed()]),
     Mod = list_to_atom(lists:concat([?MODULE,"_",?FUNCTION_NAME])),
@@ -513,6 +525,21 @@ test_multiplication([], _) ->
 mul_add() ->
     [{timetrap, {minutes, 5}}].
 mul_add(_Config) ->
+    MaxSmall = (1 bsl 59) - 1,
+
+    26 = mul_add_literal_lea(id(7)),
+    -16 = mul_add_literal_lea(id(-7)),
+    117 = mul_add_literal_shift(id(7)),
+    -107 = mul_add_literal_shift(id(-7)),
+    54 = mul_add_literal_madd(id(7)),
+    -44 = mul_add_literal_madd(id(-7)),
+    -51 = mul_add_literal_negative(id(7)),
+    61 = mul_add_literal_negative(id(-7)),
+    26 = mul_add_small(id(7), id(3), id(5)),
+    16 = mul_add_small(id(-7), id(-3), id(-5)),
+    MaxSmall = mul_add_extreme_increment(id(0)),
+    -1 = mul_add_extreme_increment(id(1)),
+
     _ = rand:uniform(),				%Seed generator
     io:format("Seed: ~p", [rand:export_seed()]),
     Mod = list_to_atom(lists:concat([?MODULE,"_",?FUNCTION_NAME])),
@@ -714,11 +741,11 @@ test_mul_add_exceptions() ->
     error = madd(id(7), id(b), id(3), id(whatever)),
     error = madd(id(7), id(15), id(c), id(whatever)),
 
-    {'EXIT',{badarith,[{erlang,'*',[a,2],_}|_]}} = catch madd(id(a), id(2), id(0)),
-    {'EXIT',{badarith,[{erlang,'*',[a,2],_}|_]}} = catch madd(id(a), id(2), id(42)),
-    {'EXIT',{badarith,[{erlang,'*',[a,2],_}|_]}} = catch madd(id(a), id(2), id(c)),
-    {'EXIT',{badarith,[{erlang,'*',[3,b],_}|_]}} = catch madd(id(3), id(b), id(c)),
-    {'EXIT',{badarith,[{erlang,'+',[6,c],_}|_]}} = catch madd(id(2), id(3), id(c)),
+    ?AssertErrorStack(badarith, [{erlang,'*',[a,2],_}|_], madd(id(a), id(2), id(0))),
+    ?AssertErrorStack(badarith, [{erlang,'*',[a,2],_}|_], madd(id(a), id(2), id(42))),
+    ?AssertErrorStack(badarith, [{erlang,'*',[a,2],_}|_], madd(id(a), id(2), id(c))),
+    ?AssertErrorStack(badarith, [{erlang,'*',[3,b],_}|_], madd(id(3), id(b), id(c))),
+    ?AssertErrorStack(badarith, [{erlang,'+',[6,c],_}|_], madd(id(2), id(3), id(c))),
 
     ok.
 
@@ -726,6 +753,46 @@ madd(A, B, C) -> A * B + C.
 
 madd(A, B, C, Res) when Res =:= A * B + C -> ok;
 madd(_, _, _, _) -> error.
+
+mul_pow2_imm12(X) when is_integer(X), -8 < X, X < 8 ->
+    X * 256.
+
+mul_pow2_large(X) when is_integer(X), -8 < X, X < 8 ->
+    X * 512.
+
+mul_small(X, Y)
+  when is_integer(X), -8 < X, X < 8,
+       is_integer(Y), -8 < Y, Y < 8 ->
+    X * Y.
+
+multiply(X, Y) ->
+    X * Y.
+
+multiply_guard(X, Y) when X * Y =:= 4 ->
+    true;
+multiply_guard(_, _) ->
+    false.
+
+mul_add_literal_lea(X) when is_integer(X), -8 < X, X < 8 ->
+    X * 3 + 5.
+
+mul_add_literal_shift(X) when is_integer(X), -8 < X, X < 8 ->
+    X * 16 + 5.
+
+mul_add_literal_madd(X) when is_integer(X), -8 < X, X < 8 ->
+    X * 7 + 5.
+
+mul_add_literal_negative(X) when is_integer(X), -8 < X, X < 8 ->
+    X * -8 + 5.
+
+mul_add_extreme_increment(N) when is_integer(N), 0 =< N, N =< 1 ->
+    N * -(1 bsl 59) + ((1 bsl 59) - 1).
+
+mul_add_small(X, Y, Z)
+  when is_integer(X), -8 < X, X < 8,
+       is_integer(Y), -8 < Y, Y < 8,
+       is_integer(Z), -8 < Z, Z < 8 ->
+    X * Y + Z.
 
 
 %% Test that the JIT only omits the overflow check when it's safe.
@@ -763,8 +830,15 @@ div_gen_pairs() ->
     {_, MaxSmall} = determine_small_limits(0),
     NumBitsMaxSmall = num_bits(MaxSmall),
 
-    Divisors = [-8,-2,-1,1,2,3,4,5,8,16,17,64,22222333] ++
+    Divisors = [-8,-2,-1,1,2,3,4,5,7,8,10,16,17,31,64,101,1000,22222333] ++
         [1 bsl P || P <- lists:seq(8, 12) ++ lists:seq(26, 36)],
+
+    LiteralDivisors = [3,7,10,101,1000,(1 bsl (NumBitsMaxSmall-1))+1,MaxSmall],
+    BoundaryPairs = [{A,D} || D <- LiteralDivisors,
+                              A <- lists:usort([0,1,D-1,D,D+1,
+                                                (MaxSmall div D)*D-1,
+                                                (MaxSmall div D)*D,
+                                                MaxSmall,MaxSmall+1])],
 
     %% Generate random pairs of smalls.
     Pairs0 = [{rand:uniform(MaxSmall),
@@ -777,7 +851,8 @@ div_gen_pairs() ->
 
     %% Generate pairs of numbers whose product are bignums.
     [{rand:uniform(MaxSmall),1 bsl Pow} ||
-        Pow <- lists:seq(NumBitsMaxSmall - 4, NumBitsMaxSmall - 1)] ++ Pairs3.
+        Pow <- lists:seq(NumBitsMaxSmall - 4, NumBitsMaxSmall - 1)] ++
+        BoundaryPairs ++ Pairs3.
 
 rand_sign() ->
     case rand:uniform() < 0.2 of
@@ -1102,11 +1177,11 @@ test_bitwise(_Config) ->
     ok.
 
 expect_fc(Fun) ->
-    {'EXIT',{function_clause,_}} = catch Fun(id(bad)),
+    ?assertError(function_clause, Fun(id(bad))),
     ok.
 
 expect_badarith(Fun) ->
-    {'EXIT',{badarith,_}} = catch Fun(id(bad)),
+    ?assertError(badarith, Fun(id(bad))),
     ok.
 
 bitwise_gen_pairs() ->
@@ -1200,6 +1275,74 @@ test_bitwise_1(A, B, Mod, Name) ->
     {AndRes, OrRes, XorRes} = Mod:Name(A, B),
     ok.
 
+%% Test that the JIT only omits the test for a small operand when it's safe.
+test_bnot(_Config) ->
+    _ = rand:uniform(),				%Seed generator
+    io:format("Seed: ~p", [rand:export_seed()]),
+    Mod = list_to_atom(lists:concat([?MODULE,"_",?FUNCTION_NAME])),
+    Limits = determine_small_limits(0),
+    Integers = neg_gen_integers(),
+    Fs0 = gen_func_names(Integers, 0),
+    Fs = [gen_bnot_function(F, Limits) || F <- Fs0],
+    Tree = ?Q(["-module('@Mod@').",
+               "-compile([export_all,nowarn_export_all])."]) ++ Fs,
+    merl:print(Tree),
+    {ok,_Bin} = merl:compile_and_load(Tree, []),
+    test_bnot(Fs0, Mod),
+    unload(Mod),
+
+    %% Test an invalid operand.
+    expect_badarith(fun(X) -> bnot X end),
+    expect_fc(fun(X) when is_integer(bnot X) -> ok end),
+
+    ok.
+
+gen_bnot_function({Name,A}, {MinSmall,MaxSmall}) ->
+    APlusOne = abs(A) + 1,
+    ?Q("'@Name@'(integer0, X0) when is_integer(X0) ->
+           X1 = X0 rem _@APlusOne@,
+           Res = bnot X0,
+           Res = bnot X1;
+         '@Name@'(integer1, X) when is_integer(X), -_@APlusOne@ < X, X < _@APlusOne@ ->
+           bnot X;
+         '@Name@'(small, X) when is_integer(X), _@MinSmall@ =< X, X =< _@MaxSmall@ ->
+           bnot X;
+         '@Name@'(small, X) ->
+           bnot X;
+         '@Name@'(guard, X) when is_integer(X), -_@APlusOne@ < X, X < _@APlusOne@,
+                                 bnot X < 0 ->
+           negative;
+         '@Name@'(guard, X) when is_integer(X) ->
+           non_negative;
+         '@Name@'(number, X) when is_number(X) ->
+           bnot X. ").
+
+test_bnot([{Name,A}|T], Mod) ->
+    try
+        test_bnot_1(A, Mod, Name),
+        test_bnot_1(-A, Mod, Name)
+    catch
+        C:R:Stk ->
+            io:format("~p failed. number: ~p\n", [Name,A]),
+            erlang:raise(C, R, Stk)
+    end,
+    test_bnot(T, Mod);
+test_bnot([], _) ->
+    ok.
+
+test_bnot_1(A, Mod, Name) ->
+    Res = bnot A,
+    Res = Mod:Name(integer0, A),
+    Res = Mod:Name(integer1, A),
+    Res = Mod:Name(small, A),
+    Res = Mod:Name(number, A),
+    Sign = if
+               Res < 0 -> negative;
+               true -> non_negative
+           end,
+    Sign = Mod:Name(guard, A),
+    ok.
+
 %% Test that the JIT only omits the overflow check when it's safe.
 test_bsl(_Config) ->
     _ = rand:uniform(),				%Seed generator
@@ -1262,7 +1405,7 @@ test_bsl([{Name,{N,S}}|T], Mod) ->
                         ok
                 end;
             S < 0 ->
-                {'EXIT', {function_clause,_}} = catch Mod:Name(N, S)
+                ?assertError(function_clause, Mod:Name(N, S))
         end
     catch
         C:R:Stk ->
@@ -1375,7 +1518,7 @@ element(_Config) ->
     zero = element_1(0+4),
     one = element_1(1+4),
 
-    {'EXIT',{badarith,_}} = catch element_1(id(a)),
+    ?assertError(badarith, element_1(id(a))),
 
     %% Test element_2: Test that it fails for 0.
     one = element_2(1),
@@ -1386,9 +1529,9 @@ element(_Config) ->
     two = element_2(2+4),
     three = element_2(3+4),
 
-    {'EXIT',{badarg,[{erlang,element,[0,{one,two,three}],_}|_]}} =
-        catch element_2(id(0)),
-    {'EXIT',{badarith,_}} = catch element_2(id(b)),
+    ?AssertErrorStack(badarg, [{erlang,element,[0,{one,two,three}],_}|_],
+                      element_2(id(0))),
+    ?assertError(badarith, element_2(id(b))),
 
     %% Test element_3: Test that if fails for integers less than 1.
     one = element_3(1),
@@ -1399,11 +1542,11 @@ element(_Config) ->
     two = element_3(2+4),
     three = element_3(3+4),
 
-    {'EXIT',{badarg,[{erlang,element,[0,{one,two,three}],_}|_]}} =
-        catch element_3(id(0)),
-    {'EXIT',{badarg,_}} = catch element_3(id(-1)),
-    {'EXIT',{badarg,_}} = catch element_3(id(-999)),
-    {'EXIT',{badarith,_}} = catch element_3(id(c)),
+    ?AssertErrorStack(badarg, [{erlang,element,[0,{one,two,three}],_}|_],
+                      element_3(id(0))),
+    ?assertError(badarg, element_3(id(-1))),
+    ?assertError(badarg, element_3(id(-999))),
+    ?assertError(badarith, element_3(id(c))),
 
     %% Test element_4: Test that it fails for integers outside of the range 1..3.
     one = element_4(1),
@@ -1414,14 +1557,14 @@ element(_Config) ->
     two = element_4(2+8),
     three = element_4(3+8),
 
-    {'EXIT',{badarg,[{erlang,element,[0,{one,two,three}],_}|_]}} =
-        catch element_4(id(0)),
-    {'EXIT',{badarg,[{erlang,element,[5,{one,two,three}],_}|_]}} =
-        catch element_4(id(5)),
-    {'EXIT',{badarg,_}} = catch element_4(id(-1)),
-    {'EXIT',{badarg,[{erlang,element,[-7,{one,two,three}],_}|_]}} =
-        catch element_4(id(-999)),
-    {'EXIT',{badarith,_}} = catch element_4(id(d)),
+    ?AssertErrorStack(badarg, [{erlang,element,[0,{one,two,three}],_}|_],
+                      element_4(id(0))),
+    ?AssertErrorStack(badarg, [{erlang,element,[5,{one,two,three}],_}|_],
+                      element_4(id(5))),
+    ?assertError(badarg, element_4(id(-1))),
+    ?AssertErrorStack(badarg, [{erlang,element,[-7,{one,two,three}],_}|_],
+                      element_4(id(-999))),
+    ?assertError(badarith, element_4(id(d))),
 
     %% Test element_5: Test that it fails for integers outside of the
     %% range 0..3.
@@ -1435,11 +1578,11 @@ element(_Config) ->
     two = element_5(2+8),
     three = element_5(3+8),
 
-    {'EXIT',{badarg,[{erlang,element,[5,{zero,one,two,three}],_}|_]}} =
-        catch element_5(id(4)),
-    {'EXIT',{badarg,[{erlang,element,[0,{zero,one,two,three}],_}|_]}} =
-        catch element_5(id(-1)),
-    {'EXIT',{badarith,_}} = catch element_5(id(e)),
+    ?AssertErrorStack(badarg, [{erlang,element,[5,{zero,one,two,three}],_}|_],
+                      element_5(id(4))),
+    ?AssertErrorStack(badarg, [{erlang,element,[0,{zero,one,two,three}],_}|_],
+                      element_5(id(-1))),
+    ?assertError(badarith, element_5(id(e))),
 
     %% element_6: Test that it fails for values outside of 0..3.
     zero = element_6(0),
@@ -1447,10 +1590,10 @@ element(_Config) ->
     two = element_6(2),
     three = element_6(3),
 
-    {'EXIT',{badarg,[{erlang,element,[5,{zero,one,two,three}],_}|_]}} =
-        catch element_6(id(4)),
-    {'EXIT',{badarg,[{erlang,element,[0,{zero,one,two,three}],_}|_]}} =
-        catch element_6(id(-1)),
+    ?AssertErrorStack(badarg, [{erlang,element,[5,{zero,one,two,three}],_}|_],
+                      element_6(id(4))),
+    ?AssertErrorStack(badarg, [{erlang,element,[0,{zero,one,two,three}],_}|_],
+                      element_6(id(-1))),
 
     %% Test element_7: Test that it fails for values outside of 1..3.
     one = element_7(1),
@@ -1461,11 +1604,11 @@ element(_Config) ->
     two = element_7(2+5),
     three = element_7(3+5),
 
-    {'EXIT',{badarg,[{erlang,element,[0,{one,two,three}],_}|_]}} =
-        catch element_7(id(0)),
-    {'EXIT',{badarg,[{erlang,element,[4,{one,two,three}],_}|_]}} =
-        catch element_7(id(4)),
-    {'EXIT',{badarith,_}} = catch element_7(id(f)),
+    ?AssertErrorStack(badarg, [{erlang,element,[0,{one,two,three}],_}|_],
+                      element_7(id(0))),
+    ?AssertErrorStack(badarg, [{erlang,element,[4,{one,two,three}],_}|_],
+                      element_7(id(4))),
+    ?assertError(badarith, element_7(id(f))),
 
     %% element_8: Test that it works in a guard.
     ok = element_8(id(1), id(a)),

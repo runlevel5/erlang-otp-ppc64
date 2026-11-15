@@ -40,6 +40,7 @@
          aead_ng/1,
          aead_bad_tag/1,
          aead_bad_key_length/1,
+         aead_empty_tag/1,
          all_ciphers/1,
          api_errors_ecdh/1,
          api_errors_aead/1,
@@ -59,12 +60,15 @@
          bad_hmac_name/1,
          bad_mac_name/1,
          bad_sign_name/1,
+         bad_sign_option/1,
          bad_verify_name/1,
+         bad_verify_option/1,
          cipher_info/0,
          cipher_info/1,
          cipher_info_prop_aead_attr/0,
          cipher_info_prop_aead_attr/1,
          cipher_padding/1,
+         aead_reuse/1,
          cmac/0,
          cmac/1,
          cmac_update/0,
@@ -107,6 +111,8 @@
          no_hmac/1,
          no_poly1305/0,
          no_poly1305/1,
+         no_siphash/0,
+         no_siphash/1,
          no_sign_verify/0,
          no_sign_verify/1,
          no_support/0,
@@ -114,6 +120,8 @@
          node_supports_cache/1,
          poly1305/0,
          poly1305/1,
+         siphash/0,
+         siphash/1,
          private_encrypt/0,
          private_encrypt/1,
          public_encrypt/0,
@@ -130,7 +138,18 @@
          hash_equals/1,
          sign_verify/0,
          sign_verify/1,
+         mldsa_key_derivation/1,
          sign_verify_oqs/1,
+         context_string_combinations/0,
+         context_string_combinations/1,
+         sign_verify_mldsa_mapping/0,
+         sign_verify_mldsa_mapping/1,
+         sign_verify_slh_dsa_mapping/0,
+         sign_verify_slh_dsa_mapping/1,
+         sign_verify_oqs_wrong_alg/0,
+         sign_verify_oqs_wrong_alg/1,
+         context_string_option/0,
+         context_string_option/1,
          ec_key_padding/1,
          use_all_ec_sign_verify/1,
          use_all_ecdh_generate_compute/1,
@@ -139,6 +158,26 @@
          pbkdf2_hmac/1,
          pbkdf2_hmac_invalid_input/0,
          pbkdf2_hmac_invalid_input/1,
+         kdf_hkdf/0,
+         kdf_hkdf/1,
+         kdf_sskdf/0,
+         kdf_sskdf/1,
+         kdf_pbkdf2/0,
+         kdf_pbkdf2/1,
+         kdf_scrypt/0,
+         kdf_scrypt/1,
+         kdf_argon2/0,
+         kdf_argon2/1,
+         kdf_invalid_input/0,
+         kdf_invalid_input/1,
+         kdf_pbkdf2_invalid_input/0,
+         kdf_pbkdf2_invalid_input/1,
+         kdf_argon2_invalid_input/0,
+         kdf_argon2_invalid_input/1,
+         kdf_scrypt_invalid_input/0,
+         kdf_scrypt_invalid_input/1,
+         kdf_sskdf_invalid_input/0,
+         kdf_sskdf_invalid_input/1,
          privkey_to_pubkey/1,
 
          %% Others:
@@ -234,12 +273,19 @@ all() ->
      {group, fips},
      {group, non_fips},
      cipher_padding,
+     aead_reuse,
      doctests,
      ec_key_padding,
      node_supports_cache,
      mod_pow,
      encapsulate,
+     mldsa_key_derivation,
      sign_verify_oqs,
+     context_string_combinations,
+     sign_verify_mldsa_mapping,
+     sign_verify_slh_dsa_mapping,
+     sign_verify_oqs_wrong_alg,
+     context_string_option,
      exor,
      rand_uniform,
      rand_threads,
@@ -251,7 +297,17 @@ all() ->
      hash_equals,
      concurrent_access,
      pbkdf2_hmac,
-     pbkdf2_hmac_invalid_input
+     pbkdf2_hmac_invalid_input,
+     kdf_hkdf,
+     kdf_sskdf,
+     kdf_pbkdf2,
+     kdf_scrypt,
+     kdf_argon2,
+     kdf_invalid_input,
+     kdf_pbkdf2_invalid_input,
+     kdf_argon2_invalid_input,
+     kdf_scrypt_invalid_input,
+     kdf_sskdf_invalid_input
     ].
 
 -define(NEW_CIPHER_TYPE_SCHEMA,
@@ -262,6 +318,7 @@ groups() ->
                      {group, blake2b},
                      {group, blake2s},
                      {group, poly1305},
+                     {group, siphash},
                      {group, dss},
                      {group, ecdsa},
                      {group, ed25519},
@@ -342,6 +399,7 @@ groups() ->
                  {group, no_blake2b},
                  {group, no_blake2s},
                  {group, no_poly1305},
+                 {group, no_siphash},
                  {group, dss},
                  {group, ecdsa},
                  {group, no_ed25519},
@@ -399,7 +457,12 @@ groups() ->
                  {group, aes_256_cfb8},
                  {group, aes_128_ofb},
                  {group, aes_192_ofb},
-                 {group, aes_256_ofb}
+                 {group, aes_256_ofb},
+
+                 {group, no_argon2d},
+                 {group, no_argon2i},
+                 {group, no_argon2id},
+                 {group, no_scrypt}
                 ]},
 
      {md4,                  [], [hash]},
@@ -474,12 +537,14 @@ groups() ->
      {sm4_ofb,              [], [api_ng, api_ng_one_shot]},
      {sm4_cfb,              [], [api_ng, api_ng_one_shot]},
      {sm4_ctr,              [], [api_ng, api_ng_one_shot]},
-     {sm4_gcm,              [], [aead_ng, aead_bad_tag, aead_bad_key_length]},
-     {sm4_ccm,              [], [aead_ng, aead_bad_tag, aead_bad_key_length]},
-     {chacha20_poly1305,    [], [aead_ng, aead_bad_tag, aead_bad_key_length]},
+     {sm4_gcm,              [], [aead_ng, aead_bad_tag, aead_bad_key_length, aead_empty_tag]},
+     {sm4_ccm,              [], [aead_ng, aead_bad_tag, aead_bad_key_length, aead_empty_tag]},
+     {chacha20_poly1305,    [], [aead_ng, aead_bad_tag, aead_bad_key_length, aead_empty_tag]},
      {chacha20,             [], [api_ng, api_ng_one_shot]},
      {poly1305,             [], [poly1305]},
      {no_poly1305,          [], [no_poly1305]},
+     {siphash,              [], [siphash]},
+     {no_siphash,           [], [no_siphash]},
      {no_aes_cfb128,        [], [no_support]},
      {no_md4,               [], [no_support, no_hash]},
      {no_md5,               [], [no_support, no_hash, no_hmac]},
@@ -501,6 +566,10 @@ groups() ->
      {no_chacha20,          [], [no_support]},
      {no_rc2_cbc,           [], [no_support]},
      {no_rc4,               [], [no_support]},
+     {no_argon2d,           [], [no_support]},
+     {no_argon2i,           [], [no_support]},
+     {no_argon2id,          [], [no_support]},
+     {no_scrypt,            [], [no_support]},
      {api_errors,           [], [api_errors_ecdh,
                                  bad_key_length,
                                  bad_cipher_name,
@@ -510,7 +579,9 @@ groups() ->
                                  bad_hmac_name,
                                  bad_cmac_name,
                                  bad_sign_name,
+                                 bad_sign_option,
                                  bad_verify_name,
+                                 bad_verify_option,
                                  api_errors_aead
                                 ]},
 
@@ -523,22 +594,27 @@ groups() ->
      {aes_128_ctr,  [], [api_ng, api_ng_one_shot]},
      {aes_192_ctr,  [], [api_ng, api_ng_one_shot]},
      {aes_256_ctr,  [], [api_ng, api_ng_one_shot]},
-     {aes_128_ccm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length]},
-     {aes_192_ccm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length]},
-     {aes_256_ccm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length]},
+     {aes_128_ccm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length, aead_empty_tag]},
+     {aes_192_ccm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length, aead_empty_tag]},
+     {aes_256_ccm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length, aead_empty_tag]},
      {aes_128_ecb,  [], [api_ng, api_ng_one_shot]},
      {aes_192_ecb,  [], [api_ng, api_ng_one_shot]},
      {aes_256_ecb,  [], [api_ng, api_ng_one_shot]},
-     {aes_128_gcm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length]},
-     {aes_192_gcm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length]},
-     {aes_256_gcm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length]},
+     {aes_128_gcm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length, aead_empty_tag]},
+     {aes_192_gcm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length, aead_empty_tag]},
+     {aes_256_gcm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length, aead_empty_tag]},
      {aes_128_ofb,  [], [api_ng, api_ng_one_shot]},
      {aes_192_ofb,  [], [api_ng, api_ng_one_shot]},
      {aes_256_ofb,  [], [api_ng, api_ng_one_shot]}
     ].
 
 doctests(_Config) ->
+    SkipTests = case lists:member(scrypt, crypto:supports(kdfs)) of
+                    false -> [{function, kdf, 4}];
+                    true -> []
+                end,
     ct_doctest:module(crypto, [
+        {skip_tests, SkipTests},
         {missing_tests, [
             {crypto_final,1},
             {crypto_one_time_aead,4},
@@ -957,6 +1033,78 @@ no_poly1305(_Config) ->
     notsup(fun crypto:mac/3, [poly1305,Key,Txt]).
 
 %%--------------------------------------------------------------------
+siphash() ->
+    [{doc, "Test siphash MAC with configurable rounds and output size"}].
+siphash(Config) ->
+    lists:foreach(fun siphash_check_vector/1, proplists:get_value(siphash, Config)),
+    siphash_extra_checks().
+
+%% Each vector is {SubType, Key, Txt, Expect} where SubType is 'undefined' or a
+%% siphash options map. Every vector is checked both one-shot (mac/4) and
+%% streaming (mac_init/3 + mac_update/2 + mac_final/1); the default configs
+%% ('undefined' or #{}) are additionally checked through the SubType-less mac/3
+%% and mac_init/2 to confirm they select the cryptolib defaults.
+siphash_check_vector({SubType, Key, Txt, Expect}) ->
+    siphash_eq(crypto:mac(siphash, SubType, Key, Txt), Expect, {mac4, SubType, Txt}),
+    Streamed = crypto:mac_final(
+                 crypto:mac_update(crypto:mac_init(siphash, SubType, Key), Txt)),
+    siphash_eq(Streamed, Expect, {mac_init3, SubType, Txt}),
+    case siphash_default_subtype(SubType) of
+        true ->
+            siphash_eq(crypto:mac(siphash, Key, Txt), Expect, {mac3, Txt}),
+            Streamed2 = crypto:mac_final(
+                          crypto:mac_update(crypto:mac_init(siphash, Key), Txt)),
+            siphash_eq(Streamed2, Expect, {mac_init2, Txt});
+        false ->
+            ok
+    end.
+
+siphash_default_subtype(undefined) -> true;
+siphash_default_subtype(Map) when is_map(Map) -> map_size(Map) =:= 0;
+siphash_default_subtype(_) -> false.
+
+siphash_eq(Got, Expect, Ctx) ->
+    case Got of
+        Expect -> ok;
+        _ -> ct:fail({siphash, Ctx, {expected, Expect}, {got, Got}})
+    end.
+
+%% macN truncation and option validation.
+siphash_extra_checks() ->
+    Key = hexstr2bin("000102030405060708090a0b0c0d0e0f"),
+    Txt = hexstr2bin("000102030405060708090a0b0c0d"),
+    %% macN truncates the (default 16 byte) output to N bytes
+    <<Trunc:8/binary, _/binary>> = crypto:mac(siphash, #{size => 16}, Key, Txt),
+    Trunc = crypto:macN(siphash, #{size => 16}, Key, Txt, 8),
+    Trunc = crypto:macN(siphash, Key, Txt, 8),
+    %% invalid options are rejected with badarg, including round counts that are
+    %% below 1 or above the cap (which would otherwise let a single call spin a
+    %% scheduler)
+    [ siphash_expect_badarg(fun() -> crypto:mac(siphash, Opts, Key, Txt) end)
+      || Opts <- [#{size => 12}, #{size => 0}, #{c_rounds => 0},
+                  #{d_rounds => 0}, #{c_rounds => 17}, #{d_rounds => 1000000000},
+                  #{unknown => 1}, not_a_map] ],
+    %% a wrong key length is rejected with badarg
+    siphash_expect_badarg(fun() -> crypto:mac(siphash, <<0,1,2,3>>, Txt) end),
+    ok.
+
+siphash_expect_badarg(F) ->
+    try F() of
+        R -> ct:fail({siphash, expected_badarg, {got, R}})
+    catch
+        error:badarg -> ok;
+        error:{badarg, _, _} -> ok
+    end.
+
+%%--------------------------------------------------------------------
+no_siphash() ->
+    [{doc, "Test disabled siphash function"}].
+no_siphash(_Config) ->
+    Key = <<0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15>>,
+    Txt = <<"Cryptographic Forum Research Group">>,
+    notsup(fun crypto:mac/3, [siphash,Key,Txt]).
+
+%%--------------------------------------------------------------------
 api_ng() ->
      [{doc, "Test new api"}].
 
@@ -1225,6 +1373,23 @@ aead_bad_key_length(Config) ->
         end,
     do_cipher_tests(fun aead_cipher_bad_key_length/1, FilteredAEADs).
 
+%%--------------------------------------------------------------------
+aead_empty_tag(Config) ->
+    [_|_] = AEADs = lazy_eval(proplists:get_value(cipher, Config)),
+    FilteredAEADs =
+        case proplists:get_bool(fips, Config) of
+            false ->
+                AEADs;
+            true ->
+                %% In FIPS mode, the IV length must be at least 12 bytes.
+                lists:filter(
+                  fun(Tuple) ->
+                          IVLen = byte_size(element(4, Tuple)),
+                          IVLen >= 12
+                  end, AEADs)
+        end,
+    do_cipher_tests(fun aead_cipher_empty_tag/1, FilteredAEADs).
+
 %%-------------------------------------------------------------------- 
 sign_verify() ->
      [{doc, "Sign/verify digital signatures"}].
@@ -1404,6 +1569,64 @@ encap_decap(Alg) ->
     ok.
 
 %%--------------------------------------------------------------------
+mldsa_key_derivation(_Config) ->
+    %% NIST ACVP ML-DSA keyGen FIPS204 vectors, tcIds 1, 26, and 51:
+    %% https://github.com/usnistgov/ACVP-Server/blob/975de31eb83d87039ec88934fdc47d8c312b892d/gen-val/json-files/ML-DSA-keyGen-FIPS204/internalProjection.json
+    %% Hashing the public keys keeps the test compact while checking
+    %% their complete contents.
+    Vectors =
+        [{mldsa44, 1312,
+          "7194B13C95231010AFD2C909992BD2003BA6F437C3886BDBE3F6B867A14BA161",
+          "838B88B6AC41E2C60698173E08CA173D0B0D2839205806E56A8A3D53195F3A03"},
+         {mldsa65, 1952,
+          "A991FD42B071D49C48AE3E75C647459E0DAAD1E1BA356A04801912D3294BCFF8",
+          "B1A7D0D2F0D7A04B9D5FFCCD9BD578864DAB4A01CDD7F70A05CD1F4F0672E43A"},
+         {mldsa87, 2592,
+          "A16F5B0796703E2D1A0140A35CBF36EFABE70E752BA59B6A9A0E9C4B05302F73",
+          "33F49649F05EC2FC3B050007B18ADE043BBC8D1C0DED03A269D540486DAAA5F4"}],
+    Supported = crypto:supports(public_keys),
+    Available = [Vector || {Alg, _, _, _} = Vector <- Vectors,
+                           lists:member(Alg, Supported)],
+    case Available of
+        [_ | _] ->
+            [mldsa_key_derivation_do(Alg, PublicSize,
+                                     hexstr2bin(SeedHex),
+                                     hexstr2bin(PublicHashHex))
+             || {Alg, PublicSize, SeedHex, PublicHashHex} <- Available],
+            ok;
+        [] ->
+            {skip, mldsa_not_supported_by_crypto}
+    end.
+
+mldsa_key_derivation_do(Alg, PublicSize, Seed, PublicHash) ->
+    Msg = <<"ML-DSA private key representation test">>,
+
+    {SeedPublic, SeedExpandedKey} =
+        crypto:generate_key(Alg, [], {seed, Seed}),
+    PublicSize = byte_size(SeedPublic),
+    PublicHash = crypto:hash(sha256, SeedPublic),
+    ExpandedSize = proplists:get_value(Alg, [{mldsa44, 2560},
+                                           {mldsa65, 4032},
+                                           {mldsa87, 4896}]),
+    ExpandedSize = byte_size(SeedExpandedKey),
+    {SeedPublic, SeedExpandedKey} =
+        crypto:generate_key(Alg, [], SeedExpandedKey),
+    SeedSignature = crypto:sign(Alg, none, Msg, {seed, Seed}),
+    true = crypto:verify(Alg, none, Msg, SeedSignature, SeedPublic),
+    SeedExpandedSignature = crypto:sign(Alg, none, Msg,
+                                        {expandedkey, SeedExpandedKey}),
+    true = crypto:verify(Alg, none, Msg, SeedExpandedSignature, SeedPublic),
+
+    {ExpandedPublic, ExpandedKey} = crypto:generate_key(Alg, []),
+    {ExpandedPublic, ExpandedKey} =
+        crypto:generate_key(Alg, [], ExpandedKey),
+    ExpandedSignature = crypto:sign(Alg, none, Msg,
+                                    {expandedkey, ExpandedKey}),
+    true = crypto:verify(Alg, none, Msg, ExpandedSignature,
+                         ExpandedPublic),
+    ok.
+
+%%--------------------------------------------------------------------
 sign_verify_oqs(_Config) ->
     case openssl_version() of
         V when V < {3,5,0} ->
@@ -1433,9 +1656,13 @@ sign_verify_oqs_do(Alg) ->
 
 %% Supported by OpenSSL 3.5
 quantum_sign_ciphers() ->
-    [mldsa44, mldsa65, mldsa87,
+    mldsa_sign_ciphers() ++ slh_dsa_sign_ciphers().
 
-     slh_dsa_shake_128s,
+mldsa_sign_ciphers() ->
+    [mldsa44, mldsa65, mldsa87].
+
+slh_dsa_sign_ciphers() ->
+    [slh_dsa_shake_128s,
      slh_dsa_shake_128f,
      slh_dsa_sha2_128s,
      slh_dsa_sha2_128f,
@@ -1449,6 +1676,218 @@ quantum_sign_ciphers() ->
      slh_dsa_shake_256f,
      slh_dsa_sha2_256s,
      slh_dsa_sha2_256f].
+
+%%--------------------------------------------------------------------
+context_string_combinations() ->
+    [{doc, "Check that context_string is passed to OpenSSL for ML-DSA and "
+      "SLH-DSA, by signing and verifying with different contexts"}].
+
+context_string_combinations(_Config) ->
+    case openssl_version() of
+        V when V < {3,5,0} ->
+            {skip, "Requires OpenSSL 3.5"};
+        _ ->
+            Supported = crypto:supports(public_keys),
+            [begin
+                 true = lists:member(Alg, Supported),
+                 context_string_combinations_do(Alg)
+             end
+             || Alg <- quantum_sign_ciphers()],
+            ok
+    end.
+
+context_string_combinations_do(Alg) ->
+    io:format("Alg = ~p\n", [Alg]),
+    {Pub, Priv} = crypto:generate_key(Alg, []),
+    Msg = <<"m">>,
+    Ctx = <<"ctx">>,
+    Sign = fun(Opts) -> crypto:sign(Alg, none, Msg, Priv, Opts) end,
+    Verify = fun(Sig, Opts) -> crypto:verify(Alg, none, Msg, Sig, Pub, Opts) end,
+    C = fun(Bin) -> [{context_string, Bin}] end,
+    %% Signed with a context: verifies only with exactly the same context
+    SigCtx = Sign(C(Ctx)),
+    true = Verify(SigCtx, C(Ctx)),
+    false = Verify(SigCtx, []),
+    false = Verify(SigCtx, C(<<>>)),
+    false = Verify(SigCtx, C(<<"Ctx">>)),
+    false = Verify(SigCtx, C(<<"ctX">>)),
+    false = Verify(SigCtx, C(<<"ct">>)),
+    false = Verify(SigCtx, C(<<"ctx", 0>>)),
+    %% Signed without a context: verifies only without (or empty) context
+    SigNone = Sign([]),
+    true = Verify(SigNone, []),
+    true = Verify(SigNone, C(<<>>)),
+    false = Verify(SigNone, C(Ctx)),
+    %% Signed with an empty context: same as no context
+    SigEmpty = Sign(C(<<>>)),
+    true = Verify(SigEmpty, []),
+    false = Verify(SigEmpty, C(Ctx)),
+    ok.
+
+%%--------------------------------------------------------------------
+sign_verify_mldsa_mapping() ->
+    [{doc, "Check that ML-DSA variants are mapped to the right OpenSSL algorithms"}].
+
+sign_verify_mldsa_mapping(_Config) ->
+    case openssl_version() of
+        V when V < {3,5,0} ->
+            {skip, "Requires OpenSSL 3.5"};
+        _ ->
+            Supported = crypto:supports(public_keys),
+            Msg = <<"m">>,
+            %% ML-DSA: privkey, pubkey and signature sizes differ for each parameter set
+            %% so a wrong mapping changes the sizes.
+            MlDsaSizes = mldsa_sizes(),
+            MlDsaAlgs = [Alg || {Alg, _, _, _} <- MlDsaSizes],
+            MlDsaAlgs = mldsa_sign_ciphers(),
+            [begin
+                 true = lists:member(Alg, Supported),
+                 {Pub, Priv} = crypto:generate_key(Alg, []),
+                 Sig = crypto:sign(Alg, none, Msg, {expandedkey, Priv}, []),
+                 {Alg, PrivSize, PubSize, SigSize} = {Alg, byte_size(Priv), byte_size(Pub), byte_size(Sig)},
+                 true = crypto:verify(Alg, none, Msg, Sig, Pub, [])
+             end
+             || {Alg, PrivSize, PubSize, SigSize} <- MlDsaSizes],
+            ok
+    end.
+
+mldsa_sizes() ->
+    %% {Alg, PrivKeySize, PubKeySize, SignatureSize}
+    %% FIPS 204 table 2
+    [{mldsa44, 2560, 1312, 2420},
+     {mldsa65, 4032, 1952, 3309},
+     {mldsa87, 4896, 2592, 4627}].
+
+%%--------------------------------------------------------------------
+sign_verify_slh_dsa_mapping() ->
+    [{doc, "Check that SLH-DSA variants are mapped to the right OpenSSL algorithms"}].
+
+sign_verify_slh_dsa_mapping(_Config) ->
+    case openssl_version() of
+        V when V < {3,5,0} ->
+            {skip, "Requires OpenSSL 3.5"};
+        _ ->
+            Groups = slh_dsa_openssl_groups(),
+            %% Every SLH-DSA algorithm must have a key
+            SlhDsaAlgs = [Alg || Group <- Groups, {Alg, _} <- Group],
+            SlhDsaAlgs = slh_dsa_sign_ciphers(),
+            [sign_verify_slh_dsa_group(Group) || Group <- Groups],
+            ok
+    end.
+
+%% Each Alg in group have same private key size, so we need to check if signature
+%% is verified correctly only when Alg matches the algorithm for which the key was
+%% generated.
+sign_verify_slh_dsa_group(Group) ->
+    Supported = crypto:supports(public_keys),
+    Msg = <<"m">>,
+    Keys = [{KeyAlg, Priv, binary:part(Priv, byte_size(Priv) div 2,
+                                       byte_size(Priv) div 2)}
+            || {KeyAlg, PrivHex} <- Group,
+               Priv <- [binary:decode_hex(PrivHex)]],
+    [begin
+         true = lists:member(Alg, Supported),
+         io:format("Alg = ~p, key generated for ~p\n", [Alg, KeyAlg]),
+         Sig = crypto:sign(Alg, none, Msg, Priv, []),
+         Expected = (Alg =:= KeyAlg),
+         {Alg, KeyAlg, Expected} =
+             {Alg, KeyAlg, crypto:verify(Alg, none, Msg, Sig, Pub, [])}
+     end
+     || {Alg, _} <- Group, {KeyAlg, Priv, Pub} <- Keys],
+    ok.
+
+%% Raw SLH-DSA private keys generated with openssl like this:
+%% openssl genpkey -algorithm Alg -outform DER | tail -c $((4*n)) | \
+%% od -An -v -tx1 | tr -d ' \n' | fold -w 64
+%% where 'n' can be found in FIPS 205 table 2 for each algorithm
+slh_dsa_openssl_groups() ->
+    [[{slh_dsa_shake_128s, %% SLH-DSA-SHAKE-128s
+       <<"48ad1c53b6d5bf80e56adda27f60549f0ed442f64c7c8af7d996d2498b2321b1"
+         "7feacc6d0f84148d7e0445d25c9a97cab8795e93eb30b2aff8e3dc3e8fec3367">>},
+      {slh_dsa_shake_128f, %% SLH-DSA-SHAKE-128f
+       <<"b6046891485fbbde1062725865aed48cc568a75df7f7e1a456934dcab85f1b67"
+         "5e89ef8922bb2d53a8ac61ef227873587ab66cd65125edf1c899035c21ea3d9b">>},
+      {slh_dsa_sha2_128s, %% SLH-DSA-SHA2-128s
+       <<"076b6cbb64337dd800cb6ed551ff6e2e27e3154b60cf4d2c1762a7cab86b5985"
+         "3c332e61021ea6d5b6191888601109f5f339d3bd21c4d6ecbff1b645a3e4828b">>},
+      {slh_dsa_sha2_128f, %% SLH-DSA-SHA2-128f
+       <<"1dc38b9033ae7364ee649e3cd8fd6d3dd039d105f9a0aba787b32394c53c9dc1"
+         "e37359d1b375cfc0698e6b14bf50803a0f4d46a7e5c7d4b01f1d901fea63d4f9">>}],
+     [{slh_dsa_shake_192s, %% SLH-DSA-SHAKE-192s
+       <<"250615ba42c1d6b44fa565af888fe2eb9ec7f7941cd0ef18561a9f3aa334a8a6"
+         "9ccf771fc82fc4b9521e146758c19b490588cf1369760040a1e350bf55a29398"
+         "00cda2a218f53e13989f06b8bb49400644f34fba46a62092d556eef47717531b">>},
+      {slh_dsa_shake_192f, %% SLH-DSA-SHAKE-192f
+       <<"1a2ccab9b8d9fb9eaddf7435f0b991d542f42178fd2bc53b0a2b1cc6e2f0774e"
+         "9aa2e7e9b8e28f100fe92fef4f1c2bed4328d9cc5a9e86023edd9a614d35b889"
+         "eaa70dd4c4c7251cc2b394418ff90d5220ed4c9b3f7bba1895082626a7031e15">>},
+      {slh_dsa_sha2_192s, %% SLH-DSA-SHA2-192s
+       <<"90dc103f7108415a1c1b0ca80717c8b63dca8dd6ae07ea3c5eb98f2df84ffe37"
+         "e82faee1ccaa5b252a49505c7be020b8ae3bd6cd68d7ed503308b2264d5a195a"
+         "c56231794b196b5c030d6f1db1f517e13527be0978888e1d8935540db4af8399">>},
+      {slh_dsa_sha2_192f, %% SLH-DSA-SHA2-192f
+       <<"c36cf5ba16b7c81803d1e3563794a68482959da00f50e12d2423a246de7e7dc2"
+         "1840f7f09df9af32d3490dee490ce2c8accc1d9200f103fe676fb8f04d27dc6d"
+         "95666e87acc916b90c435052949889ea444787a0d170b73507b8be299424f51a">>}],
+     [{slh_dsa_shake_256s, %% SLH-DSA-SHAKE-256s
+       <<"b6383b783826a6011f0cd0293b71ebec5822c357b5b73e1156feb461c252ca7e"
+         "939fbca358632a7877cb02d5c757a91bf3e2f3e6b66d3cd41d3eddebc08b06ed"
+         "78638025d00d760f1231cd3e7b998a7812e01ac3baf38d9c917b7cf5e535bcd7"
+         "8278c2b9b4924f9bfd89dff6748bf70334a0d42f61d321c4d2546e210db5326f">>},
+      {slh_dsa_shake_256f, %% SLH-DSA-SHAKE-256f
+       <<"5ab65fb1aaee48c96f44712e17f8dbbc30e7d9e907239ce7218ebd1e39d19505"
+         "83efbd1641bcf320478157532789e5cc96e8a262ad20d17e65a517885272d7dd"
+         "111b8ba16d64759ab5be99565394c7a816d0c1ad2b9e923cb0647f7bf675e5ec"
+         "6f4f393a28c137f7097a3ce5876aaa2b836b9fd0e79dfcbe22c13e9da56aacb5">>},
+      {slh_dsa_sha2_256s, %% SLH-DSA-SHA2-256s
+       <<"4cf3c2fe978a0630807f989a642c33d40f7e6abcd254944bb6b347d6f5e7a009"
+         "5d4258de38ecf626979387b324b771781a2f86b3dda6a97667f6f633bc57e37a"
+         "aaf924a5f905c2376fd01beb82dfc695433959123aa45e6cad6633251c8a7802"
+         "8de930202502f5560b7cf58603fae971d3edd081712c74fafb6d5f3b0e43636b">>},
+      {slh_dsa_sha2_256f, %% SLH-DSA-SHA2-256f
+       <<"13e59c1581b5ffa7a40abb5e9fcecd58e7737c5e0ad971642d606681a9a3e475"
+         "89c3602594077990952aeb26304c2e552b019dcf2b0c2759e19f4429dfd1c77f"
+         "31b91035a2a374e6bf7ab69b89b1e3a5c5b1638e659b3fd8013c0c959eba80f8"
+         "9c6a349660f6efef22bbe1e520fd4d2542d4d07bd9fdd25597ad7a7d4c998a4b">>}]].
+
+%%--------------------------------------------------------------------
+sign_verify_oqs_wrong_alg() ->
+    [{doc, "Check that an ML-DSA or SLH-DSA signature does not verify with "
+      "any other ML-DSA or SLH-DSA algorithm"}].
+
+sign_verify_oqs_wrong_alg(_Config) ->
+    case openssl_version() of
+        V when V < {3,5,0} ->
+            {skip, "Requires OpenSSL 3.5"};
+        _ ->
+            Supported = crypto:supports(public_keys),
+            Msg = <<"m">>,
+            Signed = [begin
+                          true = lists:member(Alg, Supported),
+                          {Pub, Priv} = crypto:generate_key(Alg, []),
+                          {Alg, Pub, crypto:sign(Alg, none, Msg, Priv, [])}
+                      end
+                      || Alg <- quantum_sign_ciphers()],
+            PubSizes = #{Alg => byte_size(Pub) || {Alg, Pub, _} <- Signed},
+            [begin
+                 io:format("Signed with ~p, verified with ~p\n", [Alg, Alg2]),
+                 sign_verify_oqs_wrong_alg_do(Alg2, maps:get(Alg2, PubSizes),
+                                              Msg, Sig, Pub)
+             end
+             || {Alg, Pub, Sig} <- Signed, {Alg2, _, _} <- Signed, Alg2 =/= Alg],
+            ok
+    end.
+
+%% This only makes sense if the key size is the same between two algorithms, otherwise we get an error
+sign_verify_oqs_wrong_alg_do(Alg, PubSize, Msg, Sig, Pub)
+  when byte_size(Pub) =:= PubSize ->
+    {Alg, false} = {Alg, crypto:verify(Alg, none, Msg, Sig, Pub, [])};
+sign_verify_oqs_wrong_alg_do(Alg, _PubSize, Msg, Sig, Pub) ->
+    try crypto:verify(Alg, none, Msg, Sig, Pub, []) of
+        Result -> ct:fail({Alg, Result})
+    catch
+        error:{_, {"pkey.c", _}, _} -> ok
+    end.
 
 %%--------------------------------------------------------------------
 use_all_ec_sign_verify(_Config) ->
@@ -1911,6 +2350,48 @@ aead_cipher_ng({Type, Key, PlainText, IV, AAD, CipherText, CipherTag, TagLen, _I
                         Plain)
     end.
 
+%%--------------------------------------------------------------------
+aead_reuse(_Config) ->
+    %% Check that a state from crypto_one_time_aead_init/4 can be reused for
+    %% several messages (the key schedule is kept between calls).
+    Algs = [{aes_128_gcm, <<0:128>>},
+            {aes_192_gcm, <<0:192>>},
+            {aes_256_gcm, <<0:256>>},
+            {chacha20_poly1305, <<0:256>>},
+            {aes_128_ccm, <<0:128>>},
+            {aes_192_ccm, <<0:192>>},
+            {aes_256_ccm, <<0:256>>}],
+    case [aead_reuse_test(Type, Key) || {Type, Key} <- Algs, is_supported(Type)] of
+        [] -> {skip, "AEAD ciphers not supported"};
+        _ -> ok
+    end.
+
+aead_reuse_test(Type, Key) ->
+    TagLen = 16,
+    EncState = crypto:crypto_one_time_aead_init(Type, Key, TagLen, true),
+    DecState = crypto:crypto_one_time_aead_init(Type, Key, TagLen, false),
+    Messages = [{<<"first message">>, <<>>},
+                {<<>>, <<"aad only">>},
+                {<<0:1024>>, <<1:96>>},
+                {<<"last message">>, <<"aad">>}],
+    lists:foreach(
+      fun({I, {Plain, AAD}}) ->
+              IV = <<I:96>>,
+              {Cipher, Tag} = crypto:crypto_one_time_aead(Type, Key, IV, Plain, AAD, TagLen, true),
+              CipherTag = crypto:crypto_one_time_aead(EncState, IV, Plain, AAD),
+              CipherLen = byte_size(CipherTag) - TagLen,
+              <<Cipher:CipherLen/binary, Tag:TagLen/binary>> = CipherTag,
+              Plain = crypto:crypto_one_time_aead(DecState, IV, CipherTag, AAD)
+      end, lists:zip(lists:seq(1, length(Messages)), Messages)),
+    %% A failed tag check must not break the state for later messages
+    IV = <<255:96>>,
+    Plain = <<"after failed tag">>,
+    {Cipher, Tag} = crypto:crypto_one_time_aead(Type, Key, IV, Plain, <<>>, TagLen, true),
+    <<T0, TRest/binary>> = Tag,
+    error = crypto:crypto_one_time_aead(DecState, IV, <<Cipher/binary, (T0 bxor 1), TRest/binary>>, <<>>),
+    Plain = crypto:crypto_one_time_aead(DecState, IV, <<Cipher/binary, Tag/binary>>, <<>>),
+    ok.
+
 aead_cipher_bad_tag({Type, Key, _PlainText, IV, AAD, CipherText, CipherTag, _Info}=T) ->
     BadTag = mk_bad_tag(CipherTag),
     cipher_test(T,
@@ -1956,6 +2437,19 @@ aead_cipher_bad_key_length({Type, Key, PlainText, IV, AAD, _CipherText, _CipherT
     <<KeyTruncated:KeyTruncatedSize/binary, _/binary>> = Key,
     F(KeyTruncated).
 
+aead_cipher_empty_tag({Type, Key, _PlainText, IV, AAD, CipherText, _CipherTag, _Info}=T) ->
+    aead_cipher_empty_tag_test(T, Type, Key, IV, CipherText, AAD);
+aead_cipher_empty_tag({Type, Key, _PlainText, IV, AAD, CipherText, _CipherTag, _TagLen, _Info}=T) ->
+    aead_cipher_empty_tag_test(T, Type, Key, IV, CipherText, AAD).
+
+aead_cipher_empty_tag_test(T, Type, Key, IV, CipherText, AAD) ->
+    try crypto:crypto_one_time_aead(Type, Key, IV, CipherText, AAD, <<>>, false) of
+        error -> ok;
+        Other -> {other, {<<>>, T, Other}}
+    catch
+        error:_ ->
+            ok
+    end.
 
 cipher_test(T, Fe, Ee, Fd, Ed) ->
     %% Test encrypt
@@ -2218,6 +2712,14 @@ do_generate({rsa = Type, Mod, Exp}) ->
         FIPS ->
             ct:log("do_generate ~p FIPS=~p, Mod=~p  Exp=~p", [Type, FIPS, Mod, Exp]),
             {Pub,Priv} = crypto:generate_key(Type, {Mod,Exp}),
+            %% Verify that key generated has the requested exponent
+            [E | _] = Pub,
+            case crypto:bytes_to_integer(E) of
+                Exp ->
+                    ok;
+                OtherExp ->
+                    ct:fail("Wrong exponent, requested: ~p, got: ~p~n", [Exp, OtherExp])
+            end,
             do_sign_verify({rsa, sha256, Pub, Priv, rsa_plain()})
     end.
 
@@ -2584,7 +3086,7 @@ group_config(rsa, Config) ->
      {pub_priv_encrypt, gen_rsa_pub_priv_tests(PublicS, PrivateS, MsgPubEnc, PrivEnc_OptsToTry)},
      {pub_pub_encrypt,  gen_rsa_pub_priv_tests(PublicS, PrivateS, MsgPubEnc, PubEnc_OptsToTry)},
      {privkey_to_pubkey, get_priv_pub_from_sign_verify(RsaSignVerify)},
-     {generate, [{rsa, 1024, 3},  {rsa, 2048, 17},  {rsa, 3072, 65537}]}
+     {generate, [{rsa, 1024, 3},  {rsa, 2048, 17},  {rsa, 3072, 65537}, {rsa, 1024, 65539}]}
      | Config];
 group_config(dss = Type, Config) ->
     Msg = dss_plain(),
@@ -2651,6 +3153,66 @@ group_config(poly1305, Config) ->
          }
         ],
     [{poly1305,V} | Config];
+
+group_config(siphash, Config) ->
+    %% SipHash reference vectors (Aumasson & Bernstein). Key = 00 01 .. 0f and
+    %% message N is the byte string 00 01 .. (N-1), so the list index below is
+    %% the message length. Each vector is {SubType, Key, Txt, Expect}.
+    Key = hexstr2bin("000102030405060708090a0b0c0d0e0f"),
+    Msg = fun(Len) -> list_to_binary(lists:seq(0, Len - 1)) end,
+    %% SipHash-2-4, 8 byte output.
+    Mac24_64 =
+        ["310e0edd47db6f72","fd67dc93c539f874","5a4fa9d909806c0d","2d7efbd796666785",
+         "b7877127e09427cf","8da699cd64557618","cee3fe586e46c9cb","37d1018bf50002ab",
+         "6224939a79f5f593","b0e4a90bdf82009e","f3b9dd94c5bb5d7a","a7ad6b22462fb3f4",
+         "fbe50e86bc8f1e75","903d84c02756ea14","eef27a8e90ca23f7","e545be4961ca29a1"],
+    %% SipHash-2-4, 16 byte output (the cryptolib default).
+    Mac24_128 =
+        ["a3817f04ba25a8e66df67214c7550293","da87c1d86b99af44347659119b22fc45",
+         "8177228da4a45dc7fca38bdef60affe4","9c70b60c5267a94e5f33b6b02985ed51",
+         "f88164c12d9c8faf7d0f6e7c7bcd5579","1368875980776f8854527a07690e9627",
+         "14eeca338b208613485ea0308fd7a15e","a1f1ebbed8dbc153c0b84aa61ff08239",
+         "3b62a9ba6258f5610f83e264f31497b4","264499060ad9baabc47f8b02bb6d71ed",
+         "00110dc378146956c95447d3f3d0fbba","0151c568386b6677a2b4dc6f81e5dc18",
+         "d626b266905ef35882634df68532c125","9869e247e9c08b10d029934fc4b952f7",
+         "31fcefac66d7de9c7ec7485fe4494902","5493e99933b0a8117e08ec0f97cfc3d9"],
+    %% SipHash-1-3 for a subset of message lengths, exercising c_rounds/d_rounds.
+    %% There are no published test vectors for these parameters, so these were
+    %% produced with the Aumasson & Bernstein reference implementation run at
+    %% c=1, d=3. That same implementation reproduces the SipHash-2-4 vectors
+    %% above, which gives confidence in the SipHash-1-3 output. {Len, Expect}.
+    Mac13_64 =
+        [{0,"dcc40f055801acab"},{1,"93ca577df39bf4c9"},{7,"4011b19b987d92d3"},
+         {8,"8e9a298d11959036"},{15,"5699512a6dd820d3"}],
+    Mac13_128 =
+        [{0,"e77ebcb22788a5befd62db6add303001"},{1,"fc6f370460d3eda85e0573cc2b2ff063"},
+         {7,"1084b923f2aae0c3a62f2ec80848ab77"},{8,"aa12fee1d5e3dab4724f16ab35f9c799"},
+         {15,"c17e5505b2bd526c2921cdec1e7e0109"}],
+    %% SipHash-16-16, generated the same way, exercising the maximum accepted
+    %% round count (SIPHASH_MAX_ROUNDS); pairs with the c_rounds=>17 negative
+    %% case below to pin the cap boundary.
+    Mac16_64 =
+        [{0,"86ecdeea325a9e7e"},{8,"5d64ddb47a8d1519"},{15,"0e00e7042cc3da48"}],
+    Mac16_128 =
+        [{0,"060e750fc7757b430df2480f3f8d513b"},{8,"4e69d99dd90bafc34689e5795f985fa2"},
+         {15,"7f7d4a8075164bb2ca858483c433457e"}],
+    %% The default (16 byte) output is exercised through both 'undefined' and
+    %% #{size => 16}; #{size => 8} selects the classic 64-bit SipHash-2-4.
+    V = [ {undefined, Key, Msg(I), hexstr2bin(H)}
+          || {I, H} <- lists:zip(lists:seq(0, 15), Mac24_128) ]
+        ++ [ {#{size => 16}, Key, Msg(I), hexstr2bin(H)}
+             || {I, H} <- lists:zip(lists:seq(0, 15), Mac24_128) ]
+        ++ [ {#{size => 8}, Key, Msg(I), hexstr2bin(H)}
+             || {I, H} <- lists:zip(lists:seq(0, 15), Mac24_64) ]
+        ++ [ {#{c_rounds => 1, d_rounds => 3, size => 8}, Key, Msg(I), hexstr2bin(H)}
+             || {I, H} <- Mac13_64 ]
+        ++ [ {#{c_rounds => 1, d_rounds => 3, size => 16}, Key, Msg(I), hexstr2bin(H)}
+             || {I, H} <- Mac13_128 ]
+        ++ [ {#{c_rounds => 16, d_rounds => 16, size => 8}, Key, Msg(I), hexstr2bin(H)}
+             || {I, H} <- Mac16_64 ]
+        ++ [ {#{c_rounds => 16, d_rounds => 16, size => 16}, Key, Msg(I), hexstr2bin(H)}
+             || {I, H} <- Mac16_128 ],
+    [{siphash, V} | Config];
 
 group_config(F, Config) ->
     TestVectors = fun() -> ?MODULE:F(Config) end,
@@ -5290,6 +5852,102 @@ bad_verify_name(_Config) ->
     ?chk_api_name(crypto:verify(foobar, sha, "nothing", <<"nothing">>, <<1:1024>>),
                   error:{_, {"pkey.c",_}, _}).
 
+bad_sign_option(_Config) ->
+    ?chk_api_name(crypto:sign(rsa, sha, "nothing", <<1:1024>>, [{rsa_padding, foobar}]),
+                  error:{badarg,{"pkey.c",_},"Bad value in option rsa_padding"++_}),
+    ?chk_api_name(crypto:sign(rsa, sha, "nothing", <<1:1024>>, [{rsa_pss_saltlen, -3}]),
+                  error:{badarg,{"pkey.c",_},"Bad value in option rsa_pss_saltlen"++_}),
+    ?chk_api_name(crypto:sign(rsa, sha, "nothing", <<1:1024>>, [{foobar, 1}]),
+                  error:{badarg,{"pkey.c",_},"Bad option"++_}),
+    ?chk_api_name(crypto:sign(rsa, sha, "nothing", <<1:1024>>, [foobar]),
+                  error:{badarg,{"pkey.c",_},"Expects only two-tuples in the list"++_}),
+    OnlyMsg = only_supported_options_msg(),
+    ?chk_api_name(crypto:sign(ecdsa, sha, "nothing", <<1:1024>>,
+                              [{rsa_padding, rsa_pkcs1_padding}]),
+                  error:{badarg,{"pkey.c",_},OnlyMsg}).
+
+bad_verify_option(_Config) ->
+    ?chk_api_name(crypto:verify(rsa, sha, "nothing", <<"nothing">>, <<1:1024>>,
+                                [{rsa_padding, foobar}]),
+                  error:{badarg,{"pkey.c",_},"Bad value in option rsa_padding"++_}),
+    ?chk_api_name(crypto:verify(rsa, sha, "nothing", <<"nothing">>, <<1:1024>>,
+                                [{rsa_pss_saltlen, -3}]),
+                  error:{badarg,{"pkey.c",_},"Bad value in option rsa_pss_saltlen"++_}),
+    ?chk_api_name(crypto:verify(rsa, sha, "nothing", <<"nothing">>, <<1:1024>>,
+                                [{foobar, 1}]),
+                  error:{badarg,{"pkey.c",_},"Bad option"++_}),
+    ?chk_api_name(crypto:verify(rsa, sha, "nothing", <<"nothing">>, <<1:1024>>,
+                                [foobar]),
+                  error:{badarg,{"pkey.c",_},"Expects only two-tuples in the list"++_}),
+    OnlyMsg = only_supported_options_msg(),
+    ?chk_api_name(crypto:verify(ecdsa, sha, "nothing", <<"nothing">>, <<1:1024>>,
+                                [{rsa_padding, rsa_pkcs1_padding}]),
+                  error:{badarg,{"pkey.c",_},OnlyMsg}).
+
+%% Options are accepted for ML-DSA and SLH-DSA only when crypto is built
+%% with support for at least one of them (OpenSSL 3.5 or later)
+only_supported_options_msg() ->
+    case pqc_sign_built() of
+        true -> "Only RSA, ML-DSA and SLH-DSA support Options";
+        false -> "Only RSA supports Options"
+    end.
+
+pqc_sign_built() ->
+    case crypto:info_fips() of
+        enabled ->
+            openssl_version() >= {3,5,0};
+        _ ->
+            Supported = crypto:supports(public_keys),
+            lists:any(fun(Alg) -> lists:member(Alg, Supported) end,
+                      quantum_sign_ciphers())
+    end.
+
+context_string_option() ->
+    [{doc, "Validation of the context_string option for ML-DSA and SLH-DSA"}].
+
+context_string_option(_Config) ->
+    case openssl_version() of
+        V when V < {3,5,0} ->
+            {skip, "Requires OpenSSL 3.5"};
+        _ ->
+            [context_string_option_do(Alg) || Alg <- quantum_sign_ciphers()],
+            %% Only ml-dsa and slh-dsa support context
+            Context = <<"a">>,
+            ?chk_api_name(crypto:sign(rsa, sha, "nothing", <<1:1024>>, [{context_string, Context}]),
+                          error:{badarg,{"pkey.c",_},"Bad option"++_}),
+            ?chk_api_name(crypto:verify(rsa, sha, "nothing", <<"nothing">>, <<1:1024>>,
+                                        [{context_string, Context}]),
+                          error:{badarg,{"pkey.c",_},"Bad option"++_}),
+            ?chk_api_name(crypto:verify(rsa, sha, "nothing", <<"nothing">>, <<1:1024>>,
+                                        [{context_string, <<>>}]),
+                          error:{badarg,{"pkey.c",_},"Bad option"++_})
+    end.
+
+context_string_option_do(Alg) ->
+    io:format("Alg = ~p\n", [Alg]),
+    true = lists:member(Alg, crypto:supports(public_keys)),
+    {Pub, Priv} = crypto:generate_key(Alg, []),
+    Msg = "Hejsan",
+    %% Max length of context_string is 255 bytes
+    Max = crypto:strong_rand_bytes(255),
+    MaxSign = crypto:sign(Alg, none, Msg, {expandedkey, Priv},
+                          [{context_string, Max}]),
+    true = crypto:verify(Alg, none, Msg, MaxSign, Pub,
+                         [{context_string, Max}]),
+    %% Too long context, and invalid value in option will fail
+    TooLong = crypto:strong_rand_bytes(256),
+    ?chk_api_name(crypto:sign(Alg, none, Msg, {expandedkey, Priv},
+                              [{context_string, TooLong}]),
+                  error:{badarg,{"pkey.c",_},
+                         "Bad value in option context_string"++_}),
+    ?chk_api_name(crypto:verify(Alg, none, Msg, MaxSign, Pub,
+                                [{context_string, TooLong}]),
+                  error:{badarg,{"pkey.c",_},
+                         "Bad value in option context_string"++_}),
+    ?chk_api_name(crypto:sign(Alg, none, Msg, {expandedkey, Priv},
+                              [{context_string, foobar}]),
+                  error:{badarg,{"pkey.c",_},
+                         "Bad value in option context_string"++_}).
 
 %%%----------------------------------------------------------------
 try_enable_fips_mode(Config) ->
@@ -5439,11 +6097,424 @@ pbkdf2_hmac_invalid_input(Config) when is_list(Config) ->
     TestFun(sha, <<"pass">>, <<"salt">>, "baditer", 1, "Not integer"),
     TestFun(sha, <<"pass">>, <<"salt">>, 0, 1, "Must be > 0"),
     TestFun(sha, <<"pass">>, <<"salt">>, 1, "badlen", "Not integer"),
-    TestFun(sha, <<"pass">>, <<"salt">>, 1, 0, "Must be > 0")
+    TestFun(sha, <<"pass">>, <<"salt">>, 1, 0, "Must be > 0"),
+    %% We skip testing for pass and salt being longer than INT_MAX because that would
+    %% require us to allocate 2 GiB (per binary) just for tests
+    TestFun(sha, <<"pass">>, <<"salt">>, 1 bsl 31, 1, "Must be <= INT_MAX"),
+    TestFun(sha, <<"pass">>, <<"salt">>, 1, 1 bsl 31, "Must be <= INT_MAX")
   catch
     error:{notsup, _, "Unsupported CRYPTO_PKCS5_PBKDF2_HMAC"++_} ->
             {skip, "No CRYPTO_PKCS5_PBKDF2_HMAC"}
   end.
+
+kdf_hkdf() ->
+  [{doc, "Test kdf/4 with hkdf, RFC 5869 test vectors"}].
+kdf_hkdf(Config) when is_list(Config) ->
+    case lists:member(hkdf, crypto:supports(kdfs)) of
+        false ->
+            {skip, "hkdf not supported"};
+        true ->
+            IKM = binary:copy(<<16#0b>>, 22),
+            Salt = <<16#000102030405060708090a0b0c:(13*8)>>,
+            Info = <<16#f0f1f2f3f4f5f6f7f8f9:(10*8)>>,
+            %% A.1: extract-and-expand (default mode)
+            OKM1 = binary:decode_hex(
+                     <<"3cb25f25faacd57a90434f64d0362f2a"
+                       "2d2d0a90cf1a5a4c5db02d56ecc4c5bf"
+                       "34007208d5b887185865">>),
+            OKM1 = crypto:kdf(hkdf, IKM, 42, #{digest => sha256,
+                                               salt => Salt,
+                                               info => Info}),
+            %% Same, mode given explicitly
+            OKM1 = crypto:kdf(hkdf, IKM, 42, #{digest => sha256,
+                                               salt => Salt,
+                                               info => Info,
+                                               mode => extract_and_expand}),
+            %% A.1 PRK: extract-only; KeyLen must equal digest size
+            PRK1 = binary:decode_hex(
+                     <<"077709362c2e32df0ddc3f0dc47bba63"
+                       "90b6c73bb50f9c3122ec844ad7c2b3e5">>),
+            PRK1 = crypto:kdf(hkdf, IKM, 32, #{digest => sha256,
+                                               salt => Salt,
+                                               mode => extract_only}),
+            %% A.1 again as expand-only from the PRK
+            OKM1 = crypto:kdf(hkdf, PRK1, 42, #{digest => sha256,
+                                                info => Info,
+                                                mode => expand_only}),
+            %% A.3: zero-length salt and info
+            OKM3 = binary:decode_hex(
+                     <<"8da4e775a563c18f715f802a063c5a31"
+                       "b8a11f5c5ee1879ec3454e5f3c738d2d"
+                       "9d201395faa4b61a96c8">>),
+            OKM3 = crypto:kdf(hkdf, IKM, 42, #{digest => sha256,
+                                               salt => <<>>,
+                                               info => <<>>}),
+            ok
+    end.
+
+kdf_sskdf() ->
+  [{doc, "Test kdf/4 with sskdf, hash mode (RFC 7518 Appendix C) and "
+         "HMAC mode (NIST CAVP vector)"}].
+kdf_sskdf(Config) when is_list(Config) ->
+    case lists:member(sskdf, crypto:supports(kdfs)) of
+        false ->
+            {skip, "sskdf not supported"};
+        true ->
+            F = fun(Secret, Opts) ->
+                    binary:encode_hex(
+                      crypto:kdf(sskdf, Secret, 16, Opts),
+                      lowercase)
+                end,
+            Secret = binary:decode_hex(
+                       <<"9e56d91d817135d372834283bf84269c"
+                         "fb316ea3da806a48f6daa7798cfe90c4">>),
+            Info = <<0,0,0,7,"A128GCM",
+                     0,0,0,5,"Alice",
+                     0,0,0,3,"Bob",
+                     0,0,0,128>>,
+            <<"56aa8deaf8236d205c2228cd71a7101a">> =
+                F(Secret, #{digest => sha256, info => Info}),
+            <<"13479e9a91dd20fdd757d68ffe8869fb">> =
+                F(binary:decode_hex(<<"6ee6c00d70a6cd14bd5a4e8fcfec8386">>),
+                  #{digest => sha256, mac => hmac,
+                    salt => binary:decode_hex(
+                              <<"532f5131e0a2fecc722f87e5aa2062cb">>),
+                    info => binary:decode_hex(
+                              <<"861aa2886798231259bd0314">>)}),
+            ok
+    end.
+
+kdf_pbkdf2() ->
+  [{doc, "Test kdf/4 with pbkdf2, RFC 6070, RFC 3962 and RFC 7914 "
+         "test vectors"}].
+kdf_pbkdf2(Config) when is_list(Config) ->
+    case lists:member(pbkdf2, crypto:supports(kdfs)) of
+        false ->
+            {skip, "pbkdf2 not supported"};
+        true ->
+            F = fun(Pass, Salt, Iter, KeyLen) ->
+                    binary:encode_hex(
+                      crypto:kdf(pbkdf2, Pass, KeyLen,
+                                 #{digest => sha,
+                                   salt => Salt,
+                                   iterations => Iter}))
+                end,
+            F256 = fun(Pass, Salt, Iter, KeyLen) ->
+                    binary:encode_hex(
+                      crypto:kdf(pbkdf2, Pass, KeyLen,
+                                 #{digest => sha256,
+                                   salt => Salt,
+                                   iterations => Iter}))
+                end,
+            %% RFC 6070
+            <<"0C60C80F961F0E71F3A9B524AF6012062FE037A6">> =
+                F(<<"password">>, <<"salt">>, 1, 20),
+            <<"EA6C014DC72D6F8CCD1ED92ACE1D41F0D8DE8957">> =
+                F(<<"password">>, <<"salt">>, 2, 20),
+            <<"4B007901B765489ABEAD49D926F721D065A429C1">> =
+                F(<<"password">>, <<"salt">>, 4096, 20),
+            <<"EEFE3D61CD4DA4E4E9945B3D6BA2158C2634E984">> =
+                F(<<"password">>, <<"salt">>, 16777216, 20),
+            <<"3D2EEC4FE41C849B80C8D83662C0E44A8B291A964CF2F07038">> =
+                F(<<"passwordPASSWORDpassword">>,
+                  <<"saltSALTsaltSALTsaltSALTsaltSALTsalt">>, 4096, 25),
+            <<"56FA6AA75548099DCC37D7F03425E0C3">> =
+                F(<<"pass\0word">>, <<"sa\0lt">>, 4096, 16),
+            %% RFC 3962
+            <<"CDEDB5281BB2F801565A1122B2563515">> =
+                F(<<"password">>, <<"ATHENA.MIT.EDUraeburn">>, 1, 16),
+            <<"CDEDB5281BB2F801565A1122B25635150AD1F7A04BB9F3A333ECC0E2E1F70837">> =
+                F(<<"password">>, <<"ATHENA.MIT.EDUraeburn">>, 1, 32),
+            <<"01DBEE7F4A9E243E988B62C73CDA935D">> =
+                F(<<"password">>, <<"ATHENA.MIT.EDUraeburn">>, 2, 16),
+            <<"01DBEE7F4A9E243E988B62C73CDA935DA05378B93244EC8F48A99E61AD799D86">> =
+                F(<<"password">>, <<"ATHENA.MIT.EDUraeburn">>, 2, 32),
+            <<"5C08EB61FDF71E4E4EC3CF6BA1F5512B">> =
+                F(<<"password">>, <<"ATHENA.MIT.EDUraeburn">>, 1200, 16),
+            <<"5C08EB61FDF71E4E4EC3CF6BA1F5512BA7E52DDBC5E5142F708A31E2E62B1E13">> =
+                F(<<"password">>, <<"ATHENA.MIT.EDUraeburn">>, 1200, 32),
+            <<"D1DAA78615F287E6A1C8B120D7062A49">> =
+                F(<<"password">>, binary:encode_unsigned(16#1234567878563412), 5, 16),
+            <<"D1DAA78615F287E6A1C8B120D7062A493F98D203E6BE49A6ADF4FA574B6E64EE">> =
+                F(<<"password">>, binary:encode_unsigned(16#1234567878563412), 5, 32),
+            <<"139C30C0966BC32BA55FDBF212530AC9">> =
+                F(<<"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX">>,
+                  <<"pass phrase equals block size">>, 1200, 16),
+            <<"139C30C0966BC32BA55FDBF212530AC9C5EC59F1A452F5CC9AD940FEA0598ED1">> =
+                F(<<"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX">>,
+                  <<"pass phrase equals block size">>, 1200, 32),
+            <<"9CCAD6D468770CD51B10E6A68721BE61">> =
+                F(<<"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX">>,
+                  <<"pass phrase exceeds block size">>, 1200, 16),
+            <<"9CCAD6D468770CD51B10E6A68721BE611A8B4D282601DB3B36BE9246915EC82A">> =
+                F(<<"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX">>,
+                  <<"pass phrase exceeds block size">>, 1200, 32),
+            <<"6B9CF26D45455A43A5B8BB276A403B39">> =
+                F(binary:encode_unsigned(16#f09d849e), <<"EXAMPLE.COMpianist">>, 50, 16),
+            <<"6B9CF26D45455A43A5B8BB276A403B39E7FE37A0C41E02C281FF3069E1E94F52">> =
+                F(binary:encode_unsigned(16#f09d849e), <<"EXAMPLE.COMpianist">>, 50, 32),
+            %% SHA256 variant, RFC 7914 (section 11)
+            <<"55AC046E56E3089FEC1691C22544B605"
+              "F94185216DDE0465E68B9D57C20DACBC"
+              "49CA9CCCF179B645991664B39D77EF31"
+              "7C71B845B1E30BD509112041D3A19783">> =
+                F256(<<"passwd">>, <<"salt">>, 1, 64),
+            <<"4DDCD8F60B98BE21830CEE5EF22701F9"
+              "641A4418D04C0414AEFF08876B34AB56"
+              "A1D425A1225833549ADB841B51C9B317"
+              "6A272BDEBBA1D078478F62B397F33C8D">> =
+                F256(<<"Password">>, <<"NaCl">>, 80000, 64),
+            %% Cross-check against the existing pbkdf2_hmac/5
+            Expected = crypto:pbkdf2_hmac(sha256, <<"pass">>, <<"salt">>,
+                                          1000, 32),
+            Expected = crypto:kdf(pbkdf2, <<"pass">>, 32,
+                                  #{digest => sha256,
+                                    salt => <<"salt">>,
+                                    iterations => 1000}),
+            ok
+    end.
+
+kdf_scrypt() ->
+  [{doc, "Test kdf/4 with scrypt, RFC 7914 test vectors"}].
+kdf_scrypt(Config) when is_list(Config) ->
+    case lists:member(scrypt, crypto:supports(kdfs)) of
+        false ->
+            {skip, "scrypt not supported"};
+        true ->
+            F = fun(Pass, Salt, N, R, P) ->
+                    binary:encode_hex(
+                      crypto:kdf(scrypt, Pass, 64,
+                                 #{salt => Salt,
+                                   n => N, r => R, p => P}),
+                      lowercase)
+                end,
+            <<"77d6576238657b203b19ca42c18a0497"
+              "f16b4844e3074ae8dfdffa3fede21442"
+              "fcd0069ded0948f8326a753a0fc81f17"
+              "e8d3e0fb2e0d3628cf35e20c38d18906">> =
+                F(<<>>, <<>>, 16, 1, 1),
+            <<"fdbabe1c9d3472007856e7190d01e9fe"
+              "7c6ad7cbc8237830e77376634b373162"
+              "2eaf30d92e22a3886ff109279d9830da"
+              "c727afb94a83ee6d8360cbdfa2cc0640">> =
+                F(<<"password">>, <<"NaCl">>, 1024, 8, 16),
+            <<"7023bdcb3afd7348461c06cd81fd38eb"
+              "fda8fbba904f8e3ea9b543f6545da1f2"
+              "d5432955613f0fcf62d49705242a9af9"
+              "e61e85dc0d651e40dfcf017b45575887">> =
+                F(<<"pleaseletmein">>, <<"SodiumChloride">>, 16384, 8, 1),
+            %% maxmem is accepted as an option
+            _ = crypto:kdf(scrypt, <<"p">>, 16,
+                           #{salt => <<"s">>,
+                             n => 16, r => 1, p => 1,
+                             maxmem => 1024*1024*64}),
+            ok
+    end.
+
+kdf_argon2() ->
+  [{doc, "Test kdf/4 with argon2d/i/id, RFC 9106 test vectors"}].
+kdf_argon2(Config) when is_list(Config) ->
+    case [K || K <- [argon2d, argon2i, argon2id],
+               lists:member(K, crypto:supports(kdfs))] of
+        [argon2d, argon2i, argon2id] ->
+            Password = binary:copy(<<1>>, 32),
+            Opts = #{salt => binary:copy(<<2>>, 16),
+                     secret => binary:copy(<<3>>, 8),
+                     ad => binary:copy(<<4>>, 12),
+                     memory => 32,
+                     iterations => 3,
+                     parallelism => 4},
+            %% RFC 9106 section 5.1
+            <<"512b391b6f1162975371d30919734294"
+              "f868e3be3984f3c1a13a4db9fabe4acb">> =
+                binary:encode_hex(crypto:kdf(argon2d, Password, 32, Opts),
+                                  lowercase),
+            %% RFC 9106 section 5.2
+            <<"c814d9d1dc7f37aa13f0d77f2494bda1"
+              "c8de6b016dd388d29952a4c4672b6ce8">> =
+                binary:encode_hex(crypto:kdf(argon2i, Password, 32, Opts),
+                                  lowercase),
+            %% RFC 9106 section 5.3
+            <<"0d640df58d78766c08c037a34a8b53c9"
+              "d01ef0452d75b65eb52520e96b01e659">> =
+                binary:encode_hex(crypto:kdf(argon2id, Password, 32, Opts),
+                                  lowercase),
+            %% Without the optional secret/ad keys it must still derive
+            32 = byte_size(crypto:kdf(argon2id, Password, 32,
+                                      maps:without([secret, ad], Opts))),
+            ok;
+        _ ->
+            {skip, "argon2 not supported (requires OpenSSL 3.2+, no FIPS)"}
+    end.
+
+%% Assert that crypto:kdf/4 rejects the given input with a badarg carrying
+%% ErrorStr. Shared by the kdf_*_invalid_input testcases.
+kdf_expect_badarg(Type, KeyMaterial, KeyLen, Opts, ErrorStr) ->
+    try crypto:kdf(Type, KeyMaterial, KeyLen, Opts) of
+        Res -> ct:fail("Unexpected result ~p", [Res])
+    catch
+        error:{badarg, {_, _}, ErrorStr} -> ok;
+        Tag:Err ->
+            ct:fail("Unexpected exception ~p:~p", [Tag, Err])
+    end.
+
+kdf_invalid_input() ->
+  [{doc, "Test kdf/4 with invalid generic and hkdf input"}].
+kdf_invalid_input(Config) when is_list(Config) ->
+    case lists:member(hkdf, crypto:supports(kdfs)) of
+        false ->
+            {skip, "hkdf not supported"};
+        true ->
+            %% Unknown KDF type
+            kdf_expect_badarg(no_such_kdf, <<"key">>, 32, #{}, "Unknown KDF"),
+            GoodHkdf = #{digest => sha256},
+            %% Bad key material
+            kdf_expect_badarg(hkdf, "not a binary", 32, GoodHkdf,
+                              "Key material must be a binary"),
+            kdf_expect_badarg(hkdf, an_atom, 32, GoodHkdf,
+                              "Key material must be a binary"),
+            %% Bad key length
+            kdf_expect_badarg(hkdf, <<"key">>, 0, GoodHkdf, "Bad key length"),
+            kdf_expect_badarg(hkdf, <<"key">>, -1, GoodHkdf, "Bad key length"),
+            kdf_expect_badarg(hkdf, <<"key">>, bad, GoodHkdf, "Bad key length"),
+            %% Options not a map
+            kdf_expect_badarg(hkdf, <<"key">>, 32, [], "Not a map"),
+            %% Unknown option key
+            kdf_expect_badarg(hkdf, <<"key">>, 32, GoodHkdf#{iterations => 1},
+                              "Unknown option: iterations"),
+            %% Missing required option
+            kdf_expect_badarg(hkdf, <<"key">>, 32, #{}, "Missing option: digest"),
+            %% Wrong value types
+            kdf_expect_badarg(hkdf, <<"key">>, 32, GoodHkdf#{salt => "not a binary"},
+                              "Option salt must be a binary"),
+            kdf_expect_badarg(hkdf, <<"key">>, 32, GoodHkdf#{digest := sha42},
+                              "Bad digest type"),
+            %% XOF digests can't key an HMAC; reject with a clear badarg rather
+            %% than letting OpenSSL fail the derive with an opaque error.
+            kdf_expect_badarg(hkdf, <<"key">>, 32, GoodHkdf#{digest := shake256},
+                              "XOF digest not supported"),
+            kdf_expect_badarg(hkdf, <<"key">>, 32, GoodHkdf#{mode => bad_mode},
+                              "Bad hkdf mode"),
+            kdf_expect_badarg(hkdf, <<"key">>, 42, GoodHkdf#{mode => extract_only},
+                              "extract_only KeyLen must equal the digest size"),
+            %% HKDF-Expand caps output at 255 * HashLen (sha256 => 255*32 = 8160)
+            8160 = byte_size(crypto:kdf(hkdf, <<"key">>, 8160, GoodHkdf)),
+            kdf_expect_badarg(hkdf, <<"key">>, 8161, GoodHkdf,
+                              "KeyLen must be at most 255 times the digest size"),
+            %% salt is ignored in expand_only mode
+            kdf_expect_badarg(hkdf, <<"key">>, 32,
+                              GoodHkdf#{salt => <<"s">>, mode => expand_only},
+                              "Option salt not used with mode => expand_only"),
+            %% info is ignored in extract_only mode
+            kdf_expect_badarg(hkdf, <<"key">>, 32,
+                              GoodHkdf#{info => <<"info">>, mode => extract_only},
+                              "Option info not used with mode => extract_only"),
+            ok
+    end.
+
+kdf_pbkdf2_invalid_input() ->
+  [{doc, "Test kdf/4 with invalid pbkdf2 input"}].
+kdf_pbkdf2_invalid_input(Config) when is_list(Config) ->
+    case lists:member(pbkdf2, crypto:supports(kdfs)) of
+        false ->
+            {skip, "pbkdf2 not supported"};
+        true ->
+            kdf_expect_badarg(pbkdf2, <<"p">>, 32,
+                              #{digest => sha256,
+                                salt => <<"s">>,
+                                iterations => not_an_int},
+                              "Option iterations must be a positive integer"),
+            kdf_expect_badarg(pbkdf2, <<"p">>, 32,
+                              #{digest => sha256,
+                                salt => <<"s">>,
+                                iterations => 0},
+                              "Option iterations must be a positive integer"),
+            %% digests without PBKDF2_ELIGIBLE_DIGEST are rejected. sha3_256 is
+            %% FIPS-approved (so it isn't rejected earlier as a FIPS-forbidden
+            %% digest) but is not PBKDF2-eligible, so this holds under FIPS too.
+            kdf_expect_badarg(pbkdf2, <<"p">>, 32,
+                              #{digest => sha3_256,
+                                salt => <<"s">>,
+                                iterations => 1000},
+                              "Not eligible digest type"),
+            ok
+    end.
+
+kdf_argon2_invalid_input() ->
+  [{doc, "Test kdf/4 with invalid argon2 input"}].
+kdf_argon2_invalid_input(Config) when is_list(Config) ->
+    case lists:member(argon2id, crypto:supports(kdfs)) of
+        false ->
+            {skip, "argon2 not supported"};
+        true ->
+            kdf_expect_badarg(argon2id, <<"p">>, 32,
+                              #{salt => <<"0123456789abcdef">>,
+                                memory => 1 bsl 32,
+                                iterations => 3,
+                                parallelism => 4},
+                              "Option memory is too large"),
+            %% keylen < 4 (RFC 9106 minimum tag length)
+            kdf_expect_badarg(argon2id, <<"p">>, 3,
+                              #{salt => <<"0123456789abcdef">>,
+                                memory => 65536,
+                                iterations => 3,
+                                parallelism => 4},
+                              "Argon2 KeyLen must be at least 4"),
+            %% parallelism > 2^24-1
+            kdf_expect_badarg(argon2id, <<"p">>, 32,
+                              #{salt => <<"0123456789abcdef">>,
+                                memory => 65536,
+                                iterations => 3,
+                                parallelism => 1 bsl 24},
+                              "Option parallelism is too large"),
+            %% memory < 8 * parallelism
+            kdf_expect_badarg(argon2id, <<"p">>, 32,
+                              #{salt => <<"0123456789abcdef">>,
+                                memory => 8,
+                                iterations => 3,
+                                parallelism => 4},
+                              "Option memory must be at least 8 times parallelism"),
+            %% salt < 8 bytes (RFC 9106 minimum)
+            kdf_expect_badarg(argon2id, <<"p">>, 32,
+                              #{salt => <<"short">>,
+                                memory => 65536,
+                                iterations => 3,
+                                parallelism => 4},
+                              "Option salt must be at least 8 bytes"),
+            ok
+    end.
+
+kdf_scrypt_invalid_input() ->
+  [{doc, "Test kdf/4 with invalid scrypt input"}].
+kdf_scrypt_invalid_input(Config) when is_list(Config) ->
+    case lists:member(scrypt, crypto:supports(kdfs)) of
+        false ->
+            {skip, "scrypt not supported"};
+        true ->
+            kdf_expect_badarg(scrypt, <<"p">>, 16,
+                              #{salt => <<"s">>, n => 3, r => 1, p => 1},
+                              "Option n must be a power of two greater than 1"),
+            ok
+    end.
+
+kdf_sskdf_invalid_input() ->
+  [{doc, "Test kdf/4 with invalid sskdf input"}].
+kdf_sskdf_invalid_input(Config) when is_list(Config) ->
+    case lists:member(sskdf, crypto:supports(kdfs)) of
+        false ->
+            {skip, "sskdf not supported"};
+        true ->
+            %% salt is only used as the HMAC key
+            kdf_expect_badarg(sskdf, <<"s">>, 16,
+                              #{digest => sha256, salt => <<"x">>},
+                              "Option salt requires mac => hmac"),
+            %% XOF digests are rejected with a clear badarg
+            kdf_expect_badarg(sskdf, <<"s">>, 16,
+                              #{digest => shake256},
+                              "XOF digest not supported"),
+            ok
+    end.
+
 get_priv_pub_from_sign_verify(L) ->
     lists:foldl(fun get_priv_pub/2, [], L).
 

@@ -44,6 +44,7 @@ my @beam_global_funcs = qw(
     catch_end_shared
     check_float_error
     construct_utf8_shared
+    create_native_record_shared
     dispatch_bif
     dispatch_nif
     dispatch_return
@@ -78,6 +79,8 @@ my @beam_global_funcs = qw(
     i_bsr_body_shared
     i_bxor_body_shared
     i_bxor_guard_shared
+    i_ctz_body_shared
+    i_ctz_guard_shared
     i_func_info_shared
     i_get_map_element_shared
     i_get_map_element_hash_shared
@@ -86,7 +89,13 @@ my @beam_global_funcs = qw(
     i_length_body_shared
     i_line_breakpoint_trampoline_shared
     i_loop_rec_shared
+    i_popcount_body_shared
+    i_popcount_guard_shared
+    i_signed_width_body_shared
+    i_signed_width_guard_shared
     i_test_yield_shared
+    i_unsigned_width_body_shared
+    i_unsigned_width_guard_shared
     int_div_rem_body_shared
     int_div_rem_guard_shared
     is_eq_exact_list_shared
@@ -194,6 +203,12 @@ $decl_emit_funcs
 
     template<typename T, T Func>
     void emit_bitwise_fallback_guard();
+
+    template<typename T, T Func>
+    void emit_bitops_body(const ErtsCodeMFA *mfa);
+
+    template<typename T, T Func>
+    void emit_bitops_guard();
 
     x86::Mem emit_i_length_common(Label fail, int state_size);
 

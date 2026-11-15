@@ -57,7 +57,7 @@ of interest to programmers who manipulate Erlang code.
 %%
 
 -export([bif/2,bif/3,guard_bif/2,
-	 type_test/2,new_type_test/2,old_type_test/2]).
+         type_test/2,new_type_test/2]).
 -export([arith_op/2,bool_op/2,comp_op/2,list_op/2,send_op/2,op_type/2]).
 
 -export([is_type/2]).
@@ -86,6 +86,10 @@ guard_bif(element, 2) -> true;
 guard_bif(float, 1) -> true;
 guard_bif(floor, 1) -> true;
 guard_bif(hd, 1) -> true;
+guard_bif(integer_set_bits, 1) -> true;
+guard_bif(integer_signed_width, 1) -> true;
+guard_bif(integer_trailing_zeroes, 1) -> true;
+guard_bif(integer_unsigned_width, 1) -> true;
 guard_bif(is_integer, 3) -> true;
 guard_bif(is_map_key, 2) -> true;
 guard_bif(length, 1) -> true;
@@ -110,7 +114,7 @@ guard_bif(Name, A) -> new_type_test(Name, A).
       Arity :: arity().
 
 type_test(Name, Arity) ->
-    new_type_test(Name, Arity) orelse old_type_test(Name, Arity).
+    new_type_test(Name, Arity).
 
 %%  Erlang new-style type tests.
 -doc false.
@@ -136,24 +140,6 @@ new_type_test(is_reference, 1) -> true;
 new_type_test(is_record, 1) -> true;
 new_type_test(is_tuple, 1) -> true;
 new_type_test(Name, A) when is_atom(Name), is_integer(A) -> false.
-
-%%  Erlang old-style type tests.
--doc false.
--spec old_type_test(Name::atom(), Arity::arity()) -> boolean().
-
-old_type_test(integer, 1) -> true;
-old_type_test(float, 1) -> true;
-old_type_test(number, 1) -> true;
-old_type_test(atom, 1) -> true;
-old_type_test(list, 1) -> true;
-old_type_test(tuple, 1) -> true;
-old_type_test(pid, 1) -> true;
-old_type_test(reference, 1) -> true;
-old_type_test(port, 1) -> true;
-old_type_test(binary, 1) -> true;
-old_type_test(record, 2) -> true;
-old_type_test(function, 1) -> true;
-old_type_test(Name, A) when is_atom(Name), is_integer(A) -> false.
 
 -doc "Returns `true` if `OpName/Arity` is an arithmetic operator, otherwise `false`.".
 -spec arith_op(OpName, Arity) -> boolean() when
@@ -339,10 +325,14 @@ bif(halt, 0) -> true;
 bif(halt, 1) -> true;
 bif(halt, 2) -> true;
 bif(hd, 1) -> true;
+bif(integer_signed_width, 1) -> true;
+bif(integer_set_bits, 1) -> true;
 bif(integer_to_binary, 1) -> true;
 bif(integer_to_binary, 2) -> true;
 bif(integer_to_list, 1) -> true;
 bif(integer_to_list, 2) -> true;
+bif(integer_trailing_zeroes, 1) -> true;
+bif(integer_unsigned_width, 1) -> true;
 bif(iolist_size, 1) -> true;
 bif(iolist_to_binary, 1) -> true;
 bif(is_alive, 0) -> true;
@@ -398,7 +388,9 @@ bif(nodes, 1) -> true;
 bif(nodes, 2) -> true;
 bif(now, 0) -> true;
 bif(open_port, 2) -> true;
+bif(pid_to_binary, 1) -> true;
 bif(pid_to_list, 1) -> true;
+bif(port_to_binary, 1) -> true;
 bif(port_to_list, 1) -> true;
 bif(port_close, 1) -> true;
 bif(port_command, 2) -> true;
@@ -413,6 +405,7 @@ bif(process_info, 2) -> true;
 bif(processes, 0) -> true;
 bif(purge_module, 1) -> true;
 bif(put, 2) -> true;
+bif(ref_to_binary, 1) -> true;
 bif(ref_to_list, 1) -> true;
 bif(register, 2) -> true;
 bif(registered, 0) -> true;

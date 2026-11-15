@@ -67,6 +67,9 @@ in the description of each individual BIF.
 -export([memory/0, memory/1]).
 -export([alloc_info/1, alloc_sizes/1]).
 
+-export([integer_trailing_zeroes/1, integer_set_bits/1]).
+-export([integer_unsigned_width/1, integer_signed_width/1]).
+
 -export([gather_gc_info_result/1]).
 
 -export([dist_ctrl_input_handler/2,
@@ -81,6 +84,8 @@ in the description of each individual BIF.
               "see the \"Time and Time Correction in Erlang\" "
               "chapter of the ERTS User's Guide for more information"}]).
 -deprecated([{phash,2, "use erlang:phash2/2 instead"}]).
+-deprecated([{exit,2,"use erlang:exit_signal/2 instead"}]).
+-deprecated([{exit,3,"use erlang:exit_signal/3 instead"}]).
 -removed([{hash,2,"use erlang:phash2/2 instead"}]).
 -removed([{get_stacktrace,0,
            "use the new try/catch syntax for retrieving the "
@@ -148,7 +153,7 @@ This datatype is used to represent data that is meant to be output using
 any I/O module. For example: `file:write/2` or `gen_tcp:send/2`.
 
 To convert an `t:iodata/0` term to `t:binary/0` you can use
-[iolist_to_binary/2](`iolist_to_binary/1`). To transcode a `t:string/0` or
+[iolist_to_binary/1](`iolist_to_binary/1`). To transcode a `t:string/0` or
 `t:unicode:chardata/0` to `t:iodata/0` you can use `unicode:characters_to_binary/1`.
 """.
 -type iodata() :: iolist() | binary().
@@ -470,6 +475,7 @@ A list of binaries. This datatype is useful to use together with
 -export([pid_to_list/1, port_close/1, port_command/2, port_command/3]).
 -export([port_connect/2, port_control/3, port_get_data/1]).
 -export([port_set_data/2, port_to_list/1, ports/0]).
+-export([pid_to_binary/1, port_to_binary/1, ref_to_binary/1]).
 -export([posixtime_to_universaltime/1, pre_loaded/0, prepare_loading/2]).
 -export([monotonic_time/0, monotonic_time/1]).
 -export([system_time/0, system_time/1]).
@@ -552,7 +558,6 @@ A list of binaries. This datatype is useful to use together with
       module |
       new_index |
       new_uniq |
-      pid |
       type |
       uniq.
 
@@ -1476,6 +1481,133 @@ byte_size(_Bitstring) ->
       P1 :: atom().
 call_on_load_function(_P1) ->
     erlang:nif_error(undefined).
+
+%% Shadowed by erl_bif_types: erlang:integer_trailing_zeroes/1
+-doc(#{since => <<"OTP 30.0">>}).
+-doc """
+Counts trailing zeros in the binary representation of `N`.
+
+**64-bit integers:** For integers that fit in an unsigned 64-bit representation,
+this BIF returns the position of the least significant set bit (0-63).
+
+**Arbitrary-precision bignums:** For integers larger than 64 bits, this BIF
+operates on the full arbitrary-precision bit representation, counting trailing
+zeros across all limbs.
+
+**Errors:** Raises `badarg` for non-integer input and 0.
+
+## Examples
+
+```erlang
+1> integer_trailing_zeroes(0).
+** exception error: bad argument
+     in function  integer_trailing_zeroes/1
+        called as integer_trailing_zeroes(0)
+2> integer_trailing_zeroes(1).
+0
+3> integer_trailing_zeroes(8).
+3
+4> integer_trailing_zeroes(16).
+4
+```
+""".
+-spec integer_trailing_zeroes(Integer) -> non_neg_integer() | error when
+      Integer :: integer().
+integer_trailing_zeroes(_A) ->
+  erlang:nif_error(undefined).
+
+%% Shadowed by erl_bif_types: erlang:integer_set_bits/1
+-doc(#{since => <<"OTP 30.0">>}).
+-doc """
+Returns the number of one-bits (population count) in the binary
+representation of `N`.
+
+**64-bit integers:** For integers that fit in an unsigned 64-bit representation,
+this BIF counts the number of set bits, returning a value in `0..64`.
+
+**Arbitrary-precision bignums:** For integers larger than 64 bits, this BIF
+operates on the full arbitrary-precision bit representation, summing the
+population counts across all limbs. Uses SIMD acceleration (AVX-512 VPOPCNTQ
+if available) for optimal performance on large bignums.
+
+**Errors:** Raises `badarg` for non-integer input and negative integers.
+
+## Examples
+
+```erlang
+1> integer_set_bits(0).
+0
+2> integer_set_bits(-1).
+** exception error: bad argument
+     in function  integer_set_bits/1
+        called as integer_set_bits(-1)
+3> integer_set_bits(7).
+3
+4> integer_set_bits(15).
+4
+```
+""".
+-spec integer_set_bits(Integer) -> non_neg_integer() when
+      Integer :: non_neg_integer().
+integer_set_bits(_A) ->
+  erlang:nif_error(undefined).
+
+%% Shadowed by erl_bif_types: erlang:integer_unsigned_width/1
+-doc(#{since => <<"OTP 30.0">>}).
+-doc """
+Returns the number of bits required to represent the given unsigned integer
+in 2's complement. 
+clz over 64 bits is thus easily expressed as 64 - integer_unsigned_width(X).
+
+**Errors:** Raises `badarg` for negative integers and non-integers.
+
+## Examples
+
+```erlang
+1> integer_unsigned_width(0).
+0
+2> integer_unsigned_width(1).
+1
+3> integer_unsigned_width(15).
+4
+4> integer_unsigned_width(-1).
+** exception error: bad argument
+     in function  integer_unsigned_width/1
+        called as integer_unsigned_width(-1)
+```
+""".
+-spec integer_unsigned_width(Integer) -> non_neg_integer() when
+      Integer :: non_neg_integer().
+integer_unsigned_width(_A) ->
+  erlang:nif_error(undefined).
+
+%% Shadowed by erl_bif_types: erlang:integer_signed_width/1
+-doc(#{since => <<"OTP 30.0">>}).
+-doc """
+Returns the number of bits required to represent the given signed integer
+in 2's complement.
+
+**Errors:** Raises `badarg` for non-integers.
+
+## Examples
+
+```erlang
+1> integer_signed_width(0).
+1
+2> integer_signed_width(1).
+2
+3> integer_signed_width(-1).
+1
+4> integer_signed_width(a).
+** exception error: bad argument
+     in function  integer_signed_width/1
+        called as integer_signed_width(a)
+```
+""".
+-spec integer_signed_width(Integer) -> pos_integer() when
+      Integer :: integer().
+integer_signed_width(_A) ->
+  erlang:nif_error(undefined).
 
 %% cancel_timer/1
 -doc( #{ equiv =>  erlang:cancel_timer(TimerRef, []) }).
@@ -2557,7 +2689,7 @@ exit_signal(_Pid, _Reason) ->
 
 %% exit/2
 -doc """
-Old form of `exit_signal/2`, with a quirk when sender and receiver are the same.
+Deprecated form of `exit_signal/2`, with a quirk when sender and receiver are the same.
 
 > #### Note {: .info }
 >
@@ -2725,7 +2857,7 @@ external_size(_Term, _Options) ->
       PreparedCodeList :: [PreparedCode],
       PreparedCode :: prepared_code(),
       ModuleList :: [module()],
-      Error :: {not_purged,ModuleList} | {on_load,ModuleList}.
+      Error :: {not_purged | on_load | duplicated, ModuleList}.
 finish_loading(_List) ->
     erlang:nif_error(undefined).
 
@@ -2895,14 +3027,18 @@ floor(_) ->
 Returns information about `Fun` as specified by `Item`, in the form
 `{Item,Info}`.
 
-For any fun, `Item` can be any of the atoms `module`, `name`, `arity`, `env`, or
-`type`.
+For any fun, `Item` can be any of the atoms `module`, `name`, `arity`,
+`env`, or `type`.
 
 For a local fun, `Item` can also be any of the atoms `index`, `new_index`,
-`new_uniq`, `uniq`, and `pid`. For an external fun, the value of any of these
+`new_uniq`, and `uniq`. For an external fun, the value of any of these
 items is always the atom `undefined`.
 
 See [`erlang:fun_info/1`](`fun_info/1`) for a description of the items.
+
+> #### Change {: .info }
+>
+> As of Erlang/OTP 30, `pid` is no longer a valid `Item`.
 
 ## Examples
 
@@ -5058,6 +5194,23 @@ pid_to_list(_Pid) ->
     erlang:nif_error(undefined).
 
 -doc """
+Returns a binary constructed from the text representation of `Pid`.
+
+## Examples
+
+```erlang
+1> erlang:pid_to_binary(<0.1.0>).
+<<"<0.1.0>">>
+```
+""".
+-doc #{ category => terms }.
+-doc #{since => ~"OTP @OTP-20432@"}.
+-spec pid_to_binary(Pid) -> binary() when
+      Pid :: pid().
+pid_to_binary(_Pid) ->
+    erlang:nif_error(undefined).
+
+-doc """
 Returns a string corresponding to the text representation of the port identifier
 `Port`.
 
@@ -5072,6 +5225,24 @@ Returns a string corresponding to the text representation of the port identifier
 -spec port_to_list(Port) -> string() when
       Port :: port().
 port_to_list(_Port) ->
+    erlang:nif_error(undefined).
+
+-doc """
+Returns a binary constructed from the text representation of the port identifier
+`Port`.
+
+## Examples
+
+```erlang
+1> erlang:port_to_binary(#Port<0.0>).
+<<"#Port<0.0>">>
+```
+""".
+-doc #{ category => terms }.
+-doc #{since => ~"OTP @OTP-20432@"}.
+-spec port_to_binary(Port) -> binary() when
+      Port :: port().
+port_to_binary(_Port) ->
     erlang:nif_error(undefined).
 
 %% ports/0
@@ -5330,10 +5501,15 @@ convert_time_unit(Time, FromUnit, ToUnit) ->
 
 		 _ when ToUnit > 0 -> ToUnit
 	     end,
-	case Time < 0 of
-	    true -> TU*Time - (FU - 1);
-	    false -> TU*Time
-	end div FU
+    case (FU =:= TU) andalso erlang:is_integer(Time) of
+        true ->
+            Time;
+        false ->
+            case Time < 0 of
+                true -> TU*Time - (FU - 1);
+                false -> TU*Time
+            end div FU
+    end
     catch
 	_ : _ ->
 	    error_with_info(badarg, [Time, FromUnit, ToUnit])
@@ -5868,6 +6044,28 @@ Returns a string corresponding to the text representation of `Ref`.
 -spec ref_to_list(Ref) -> string() when
       Ref :: reference().
 ref_to_list(_Ref) ->
+    erlang:nif_error(undefined).
+
+-doc """
+Returns a binary constructed from the text representation of `Ref`.
+
+> #### Warning {: .warning }
+>
+> This BIF is intended for debugging and is not to be used in application
+> programs.
+
+## Examples
+
+```erlang
+1> ref_to_binary(#Ref<0.0.0.0>).
+<<"#Ref<0.0.0.0>">>
+```
+""".
+-doc #{ category => terms }.
+-doc #{since => ~"OTP @OTP-20432@"}.
+-spec ref_to_binary(Ref) -> binary() when
+      Ref :: reference().
+ref_to_binary(_Ref) ->
     erlang:nif_error(undefined).
 
 %% register/2
@@ -9267,19 +9465,38 @@ The possible flags are:
   active all the time between the two measurements.
 
   Another (probably more) useful value is to calculate total scheduler utilization
-  weighted against maximum amount of available CPU time:
+  weighted against the detected CPU capacity:
 
   ```erlang
-  > WeightedSchedulerUtilization = (TotalSchedulerUtilization
-                                    * (erlang:system_info(schedulers)
-                                       + erlang:system_info(dirty_cpu_schedulers)))
-                                   / erlang:system_info(logical_processors_available).
+  > CpuCapacity = case erlang:system_info(logical_processors_available) of
+        unknown -> unknown;
+        LPA ->
+            case erlang:system_info(cpu_quota) of
+                Quota when is_integer(Quota), Quota > 0 -> min(LPA, Quota);
+                _ -> LPA
+            end
+    end,
+    WeightedSchedulerUtilization = case CpuCapacity of
+        unknown -> unknown;
+        _ -> (TotalSchedulerUtilization
+              * (erlang:system_info(schedulers)
+                 + erlang:system_info(dirty_cpu_schedulers))) / CpuCapacity
+    end.
   0.9769136803764825
   ```
 
-  This weighted scheduler utilization will reach `1.0` when schedulers are active
-  the same amount of time as maximum available CPU time. If more schedulers exist
-  than available logical processors, this value may be greater than `1.0`.
+  This weighted scheduler utilization will reach `1.0` when scheduler active
+  wall time equals the time represented by the detected CPU capacity, using
+  the minimum of
+  `logical_processors_available` and a known `cpu_quota` as CPU capacity, or
+  `logical_processors_available` when the quota is unknown. The CPU quota is
+  reported as an integer and does not represent fractional CPU quotas exactly.
+  The value cannot be calculated when `logical_processors_available` is
+  `unknown`.
+
+  Scheduler active wall time includes time when an active scheduler thread is
+  not scheduled by the operating system. Weighted scheduler utilization is
+  therefore not a measurement of CPU execution time and may exceed `1.0`.
 
   As of ERTS version 9.0, the Erlang runtime system will as default have more
   schedulers than logical processors. This due to the dirty schedulers.
@@ -10453,6 +10670,8 @@ the `CpuTopology` type to change.
          (end_time) -> non_neg_integer();
          (ets_count) -> pos_integer();
          (ets_limit) -> pos_integer();
+         (export_count) -> pos_integer();
+         (export_limit) -> pos_integer();
          (fullsweep_after) -> {fullsweep_after, non_neg_integer()};
          (garbage_collection) -> garbage_collection_defaults();
          (heap_sizes) -> [non_neg_integer()];
@@ -10470,6 +10689,8 @@ the `CpuTopology` type to change.
          (min_bin_vheap_size) -> {min_bin_vheap_size,
                                   MinBinVHeapSize :: pos_integer()};
          (modified_timing_level) -> integer() | undefined;
+         (module_count) -> pos_integer();
+         (module_limit) -> pos_integer();
          (multi_scheduling) -> disabled | blocked | blocked_normal | enabled;
          (multi_scheduling_blockers) -> [Pid :: pid()];
          (nif_version) -> string();
@@ -11709,17 +11930,6 @@ external funs:
 
 The following elements are only present in the list if `Fun` is local:
 
-- **`{pid, Pid}`** - `Pid` is the process identifier of `init` process on
-  the local node.
-
-  > #### Change {: .info }
-  >
-  > Starting in Erlang/OTP 27, `Pid` always points to the local `init` process,
-  > regardless of which process or node the fun was originally created on.
-  >
-  > See
-  > [Upcoming Potential Incompatibilities ](`e:general_info:upcoming_incompatibilities.md#fun-creator-pid-will-always-be-local-init-process`).
-
 - **`{index, Index}`** - `Index` (an integer) is an index into the module fun
   table.
 
@@ -11735,6 +11945,10 @@ The following elements are only present in the list if `Fun` is local:
   of the fun.
 
 See also `fun_info/2` and `is_function/2`.
+
+> #### Change {: .info }
+>
+> As of Erlang/OTP 30, `{pid, Pid}` is no longer included in the list.
 """.
 -doc #{ category => terms }.
 -spec fun_info(Fun) -> [{Item, Info}] when
@@ -11743,7 +11957,7 @@ See also `fun_info/2` and `is_function/2`.
             | module | new_index | new_uniq | pid | type | uniq,
       Info :: term().
 fun_info(Fun) when erlang:is_function(Fun) ->
-    Keys = [type,env,arity,name,uniq,index,new_uniq,new_index,module,pid],
+    Keys = [type,env,arity,name,uniq,index,new_uniq,new_index,module],
     fun_info_1(Keys, Fun, []);
 fun_info(Fun) ->
     badarg_with_info([Fun]).

@@ -365,7 +365,7 @@ typedef struct {
     Eterm visability;
     Eterm reason;
     ErlOffHeap oh;
-    Eterm heap[1];
+    Eterm heap[];
 } ErtsConMonLnkSeqCleanup;
 
 static void
@@ -493,11 +493,10 @@ schedule_con_monitor_link_seq_cleanup(DistEntry* dep,
 
         if (is_non_value(reason) || is_immed(reason)) {
             rsz = 0;
-            size -= sizeof(Eterm);
         }
         else {
             rsz = size_object(reason);
-            size += sizeof(Eterm) * (rsz - 1);
+            size += rsz * sizeof(Eterm);
         }
 
         cmlcp = erts_alloc(ERTS_ALC_T_CML_CLEANUP, size);
@@ -2494,6 +2493,9 @@ int erts_net_message(Port *prt,
 		token = NIL;
 	    } else {
 		token = tuple[5];
+
+                if (!SEQ_TRACE_T_VALID(token))
+                    goto invalid_message;
 	    }
 
             erts_queue_dist_message(rp, locks, edep, ede_hfrag, token, from);
@@ -2514,6 +2516,10 @@ int erts_net_message(Port *prt,
 	}
 
 	token = tuple[4];
+
+        if (!SEQ_TRACE_T_VALID(token))
+            goto invalid_message;
+
         goto send_common;
 
     case DOP_SEND_SENDER:
@@ -2564,6 +2570,9 @@ int erts_net_message(Port *prt,
             if (tuple_arity != 4)
                 goto invalid_message;
             token = tuple[4];
+
+            if (!SEQ_TRACE_T_VALID(token))
+                goto invalid_message;
         }
 
 #ifdef ERTS_DIST_MSG_DBG
@@ -2647,6 +2656,8 @@ int erts_net_message(Port *prt,
         else {
             token = tuple[5];
         }
+        if (!SEQ_TRACE_T_VALID(token))
+            goto invalid_message;
         if ((flags & ERTS_DOP_ALTACT_SIG_FLG_ALIAS)) {
             if (is_not_ref(to) || (flags & ERTS_DOP_ALTACT_SIG_FLG_NAME)) {
                 goto invalid_message;
@@ -2784,6 +2795,9 @@ int erts_net_message(Port *prt,
 	    goto invalid_message;
 	}
 
+        if (!SEQ_TRACE_T_VALID(token))
+            goto invalid_message;
+
         if (!erts_proc_lookup(to)) {
             if (ede_hfrag != NULL) {
                 erts_free_dist_ext_copy(erts_get_dist_ext(ede_hfrag));
@@ -2843,6 +2857,8 @@ int erts_net_message(Port *prt,
             || dep != external_pid_dist_entry(from)) {
 	    goto invalid_message;
 	}
+        if (!SEQ_TRACE_T_VALID(token))
+            goto invalid_message;
         if (is_not_internal_pid(to)) {
             if (is_external_pid(to)) {
 		DistEntry *dep = external_pid_dist_entry(to);
@@ -2893,6 +2909,9 @@ int erts_net_message(Port *prt,
             goto invalid_message;
 
         token = tuple[7];
+
+        if (!SEQ_TRACE_T_VALID(token))
+            goto invalid_message;
 
         if (0) {
             
@@ -3023,6 +3042,9 @@ int erts_net_message(Port *prt,
             goto invalid_message;
 
         token = tuple[6];
+
+        if (!SEQ_TRACE_T_VALID(token))
+            goto invalid_message;
 
         if (0) {
         case DOP_SPAWN_REPLY:

@@ -637,7 +637,7 @@ bif maps:remove/2
 bif maps:update/3
 bif maps:values/1
 
-bif erts_internal:cmp_term/2
+bif erts_internal:cmp_term/4
 
 bif ets:take/2
 
@@ -859,3 +859,19 @@ bif records:is_exported/1
 bif records:create/4
 bif records:update/4
 bif records:get_definition/2
+
+#
+# New in 30.
+#
+bif erlang:pid_to_binary/1
+bif erlang:port_to_binary/1
+bif erlang:ref_to_binary/1
+
+#
+# Bit manipulation BIFs
+#
+
+ubif erlang:integer_trailing_zeroes/1
+ubif erlang:integer_set_bits/1
+ubif erlang:integer_unsigned_width/1
+ubif erlang:integer_signed_width/1

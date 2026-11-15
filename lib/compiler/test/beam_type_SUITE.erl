@@ -36,7 +36,12 @@
          cover_maps_functions/1,min_max_mixed_types/1,
          not_equal/1,infer_relops/1,binary_unit/1,premature_concretization/1,
          funs/1,will_succeed/1,float_confusion/1,
-         cover_convert_ext/1, catch_setelement/1,gh_11368/1,gh_11413/1]).
+         cover_convert_ext/1, catch_setelement/1,gh_11368/1,gh_11413/1,
+         gh_12149/1,
+         rem_bounds/1,
+         gh_11686/1,float_widens/1,huge_number_bounds/1,
+         bool_element_widens/1,
+         cover_bit_operations/1]).
 
 %% Force id/1 to return 'any'.
 -export([id/1]).
@@ -87,7 +92,14 @@ groups() ->
        cover_convert_ext,
        catch_setelement,
        gh_11368,
-       gh_11413
+       gh_11413,
+       gh_12149,
+       rem_bounds,
+       gh_11686,
+       float_widens,
+       huge_number_bounds,
+       bool_element_widens,
+       cover_bit_operations
       ]}].
 
 init_per_suite(Config) ->
@@ -306,11 +318,16 @@ numbers(_Config) ->
     Meet1 = id(0) + -10.0,                       %Float.
     10.0 = abs(Meet1),                           %Number.
 
+    true = add_zero_to_negative_zero(id(-0.0), id(10.0)),
+
     %% Cover code in beam_call_types:beam_bounds_type/3.
     ok = fcmp(0.0, 1.0),
     error = fcmp(1.0, 0.0),
 
     ok.
+
+add_zero_to_negative_zero(Zero, Mul) ->
+    Zero * Mul + 0 =:= +0.0.
 
 fcmp(0.0, 0.0) -> ok;
 fcmp(F1, F2) when (F1 - F2) / F2 < 0.0000001 -> ok;
@@ -1653,11 +1670,7 @@ cover_convert_ext(_Config) ->
     Otp27Types = <<Otp27AllTypes:16, -1:16,0:64,0:64,1:8>>,
     _ = beam_types:decode_ext(beam_types:convert_ext(Otp27Version, Otp27Types)),
 
-    Otp26AllTypes = 2#1111_1111_1111,
-    Otp26Version = 2,
-    Otp26Types = <<Otp26AllTypes:16, -1:16,0:64,0:64,1:8>>,
-    _ = beam_types:decode_ext(beam_types:convert_ext(Otp26Version, Otp26Types)),
-
+    none = beam_types:convert_ext(2, <<>>),     %OTP 26
     none = beam_types:convert_ext(1, <<>>),     %OTP 25
     none = beam_types:convert_ext(0, <<>>),
 
@@ -1682,11 +1695,281 @@ prepare_request(Msg0, Seq) ->
     Msg1 = setelement(3, Msg0, [request | Flags]),
     setelement(4, Msg1, Seq).
 
+gh_12149(Config) ->
+    {Pid,Ref} = spawn_monitor(fun gh_12149_foo/0),
+    receive after 1 -> ok end,
+    exit_signal(Pid, halted),
+    receive
+        Any ->
+            {'DOWN',Ref,process,Pid,halted} = Any,
+            ok
+    end.
+
+%% The signature pass would calculate some arbitrary finite limits for
+%% gh_12149_foo/1 and gh_12149_bar/1. The following optimization pass
+%% would widen those limits, causing an assertion failure. Without the
+%% widening assertion, beam_validator would complain.
+gh_12149_foo() ->
+    gh_12149_foo(1).
+
+gh_12149_foo(0) ->
+    exit(foo);
+gh_12149_foo(N) ->
+    gh_12149_bar(N+2).
+
+gh_12149_bar(0) ->
+    exit(bar);
+gh_12149_bar(N) ->
+    gh_12149_foo(N-1).
+
+rem_bounds(_Config) ->
+    %% Don't call the rem_bounds_1/1 function, because it will never
+    %% terminate.
+    case id(ignore) of
+        call -> rem_bounds_1(1);
+        ignore -> ok
+    end,
+
+    ok.
+
+%% GH-11400. beam_validator would reject the following code.
+rem_bounds_1(N) ->
+    rem_bounds_1((1 rem N) - 2).
+
 gh_11413(_Config) ->
     ?assertError(_, gh_11413_1()).
 
 gh_11413_1() ->
     {_, _} = lists:keyfind(0, 16777216, lists:zip([], []) ).
+
+%% GH-11686. Recursive use of `bsl` would lead to inconsistent types
+%% that would be rejected by `beam_validator`.
+
+gh_11686(_Config) ->
+    try
+        gh_11686_a(1 bsl 16)
+    catch
+        error:system_limit ->
+            ok
+    end,
+
+    try
+        gh_11686_b(122)
+    catch
+        error:system_limit ->
+            ok
+    end,
+
+    try
+        gh_11686_c(122)
+    catch
+        error:system_limit ->
+            ok
+    end,
+
+    try
+        gh_11686_d(-122)
+    catch
+        error:system_limit ->
+            ok
+    end,
+
+    ok.
+
+gh_11686_a(A) ->
+    gh_11686_a(A * A + 100).
+
+gh_11686_b(A) ->
+    gh_11686_b((A bsl A) + 100).
+
+gh_11686_c(A) ->
+    gh_11686_c((A bsr -A) + 100).
+
+gh_11686_d(A) ->
+    gh_11686_d((A bsr A) - 100).
+
+%% GH-11817. Failed to compile with an argument_widened exception.
+float_widens(_Config) ->
+    cover_is_not_wider(),
+
+    try float_widens_seq() of
+        done -> ok
+    catch
+        _:_ ->
+            error(not_properly_finished)
+    end,
+
+    ok.
+
+float_widens_seq() ->
+    float_widens_1(),
+    float_widens_2(),
+    float_widens_3(),
+    float_widens_4(),
+    float_widens_5(),
+
+    done.
+
+float_widens_1() ->
+    %% There will eventually be a multiplication of
+    %% 18446744073709551615 by 1.0. The result will be rounded up
+    %% to 18446744073709551616, meaning that the range will be
+    %% widended.
+    [ok] = id([ok || _ <:- [try <<ok || ok>> of
+                                _ -> 1.0
+                            catch
+                                _ -> 1
+                            end * 18446744073709551615]]).
+
+float_widens_2() ->
+    float_widens_2_id({try <<ok || ok>> of
+                           _ -> 1.0
+                       catch
+                           _ -> 1
+                       end * 18446744073709551615}).
+
+float_widens_2_id(I) -> I.
+
+float_widens_3() ->
+    float_widens_3_id(#{key => try <<ok || ok>> of
+                                   _ -> 1.0
+                               catch
+                                   _ -> 1
+                               end * 18446744073709551615}).
+
+float_widens_3_id(I) -> I.
+
+-record #rec{v}.
+
+float_widens_4() ->
+    float_widens_4_id(#rec{v={try <<ok || ok>> of
+                                  _ -> 1.0
+                              catch
+                                  _ -> 1
+                              end * 18446744073709551615}}).
+
+float_widens_4_id(I) -> I.
+
+float_widens_5() ->
+    F = fun() ->
+                try <<ok || ok>> of
+                    _ -> 1.0
+                catch
+                    _ -> 1
+                end * 18446744073709551615
+        end,
+    float_widens_5_id(F).
+
+float_widens_5_id(I) -> I.
+
+cover_is_not_wider() ->
+    ?assertError(_, find(id(~""), id(""))).
+
+find(String, SearchPattern) ->
+    %% find_r(String, unicode:characters_to_list(SearchPattern), undefined, nomatch).
+    find_r(String, SearchPattern, undefined, nomatch).
+
+find_r([Bin|Cont0], Needle, BP, _Res) when is_binary(Bin) ->
+    case bin_search_str(Bin, Cont0, Needle) of
+        {_, Cs0, _} ->
+            [_|Cs] = unicode_util:gc(Cs0),
+            find_r(Cs, Needle, BP, Cs0)
+    end;
+find_r(Bin, Needle, BP, _Res) ->
+    case bin_search_str(Bin, [], Needle) of
+        {_Before, [Cs0], _After} ->
+            <<_/utf8, Cs/binary>> = Cs0,
+            find_r(Cs, Needle, BP, Cs0)
+    end.
+
+bin_search_str(Bin0, Cont, SearchCPs) ->
+    <<Keep:42/binary, Cs0/binary>> = Bin0,
+    Rest = prefix_1([Cs0], SearchCPs),
+    {Keep, [Cs0|Cont], Rest}.
+
+prefix_1(Cs0, [GC]) ->
+    case unicode_util:gc(Cs0) of
+        [GC|Cs] -> Cs;
+        _ -> nomatch
+    end;
+prefix_1(Cs0, [Pre|PreR]) ->
+    case unicode_util:cp(Cs0) of
+        [Pre|Cs] ->  prefix_1(Cs,PreR);
+        _ -> nomatch
+    end.
+
+%% Number ranges with bounds beyond the float range crashed
+%% beam_types:norm_number/1 with badarg when the validator checked the
+%% arguments of a local call.
+huge_number_bounds(_Config) ->
+    5 = huge_number_bounds_1(id(5)),
+    0 = huge_number_bounds_1(id(1 bsl 1100)),
+    ok.
+
+huge_number_bounds_1(I) when I < 1 bsl 1100 -> I;
+huge_number_bounds_1(I) -> huge_number_bounds_2(I).
+
+huge_number_bounds_2(0) -> 0;
+huge_number_bounds_2(I) -> huge_number_bounds_2(I div 3).
+
+%% Failed to compile with an argument_widened exception.
+bool_element_widens(_Config) ->
+    a = bool_element_widens_1(id(a)),
+    b = bool_element_widens_1(id(b)),
+    false = bool_element_widens_1(id(c)),
+    {task,d} = bool_element_widens_1(id(d)),
+    e = bool_element_widens_1(id(e)),
+    f = bool_element_widens_1(id(f)),
+    ok.
+
+bool_element_widens_1(M) ->
+    {Type,Skip} = bool_element_widens_2(M),
+    case Skip of
+        S when S /= nil andalso S /= false -> false;
+        _ -> bool_element_widens_3(M, Type)
+    end.
+
+bool_element_widens_2(M) ->
+    case M of
+        a -> {exception,false};
+        b -> {protocol,false};
+        c -> {impl,true};
+        d -> {task,false};
+        e -> {behaviour,false};
+        _ -> {module,false}
+    end.
+
+bool_element_widens_3(M, task) -> {task,M};
+bool_element_widens_3(M, _) -> M.
+
+%% The bit operation BIFs are thoroughly tested in bitops_SUITE in
+%% erts. Here we test the type analysis.
+cover_bit_operations(_Config) ->
+    _ = [begin
+             UW = integer_unsigned_width(N),
+             SW = UW + 1,
+             SW = integer_signed_width(N),
+             SetBits = integer_set_bits(N),
+             Trailing = integer_trailing_zeroes(N+1),
+             Trailing = integer_trailing_zeroes(-(N+1)),
+             true = is_integer(UW, 0, 3),
+             true = is_integer(SW, 1, 4),
+             true = is_integer(SetBits, 0, 3),
+             true = is_integer(Trailing, 0, 3)
+         end || N <- [0,1,2,3,4,5,6,7]],
+
+    ?assertError(badarg, integer_unsigned_width(-1)),
+    ?assertError(badarg, integer_unsigned_width(1.0)),
+
+    ?assertError(badarg, integer_signed_width(1.0)),
+
+    ?assertError(badarg, integer_set_bits(0.0)),
+    ?assertError(badarg, integer_set_bits(-1)),
+
+    ?assertError(badarg, integer_trailing_zeroes(0)),
+    ?assertError(badarg, integer_trailing_zeroes(1.0)),
+
+    ok.
 
 %%%
 %%% Common utilities.

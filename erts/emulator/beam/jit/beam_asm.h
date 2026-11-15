@@ -63,6 +63,7 @@ void beamasm_codegen(void *ba,
                      const BeamCodeHeader *in_hdr,
                      const BeamCodeHeader **out_exec_hdr,
                      BeamCodeHeader **out_rw_hdr);
+void beamasm_prepare_metadata(void *ba, const BeamCodeHeader *header);
 void *beamasm_register_metadata(void *ba, const BeamCodeHeader *header);
 void beamasm_unregister_metadata(void *handle);
 void beamasm_purge_module(const void *executable_region,
@@ -123,12 +124,18 @@ void beamasm_flush_icache(const void *address, size_t size);
 
 /* Number of bytes emitted at first label in order to support trace and nif
  * load. */
-#    if defined(__aarch64__)
+#    if defined(__aarch64__) && defined(ERLANG_FRAME_POINTERS)
+#        define BEAM_ASM_FUNC_PROLOGUE_SIZE 20
+#        define BEAM_ASM_BP_RETURN_OFFSET 16
+#    elif defined(__aarch64__)
 #        define BEAM_ASM_FUNC_PROLOGUE_SIZE 12
+#        define BEAM_ASM_BP_RETURN_OFFSET 12
 #    elif defined(__powerpc64__)
 #        define BEAM_ASM_FUNC_PROLOGUE_SIZE 16
+#        define BEAM_ASM_BP_RETURN_OFFSET 16
 #    else
 #        define BEAM_ASM_FUNC_PROLOGUE_SIZE 8
+#        define BEAM_ASM_BP_RETURN_OFFSET 8
 #    endif
 
 /* Size (in bytes) of a ErtsNativeFunc/call_nif prologue. */
@@ -184,23 +191,58 @@ static inline enum erts_asm_bp_flag erts_asm_bp_get_flags(
     return (enum erts_asm_bp_flag)ci_exec->u.metadata.breakpoint_flag;
 }
 
+#    if defined(__aarch64__) || defined(__powerpc64__)
+/* The offsets are given in instructions. */
+static inline void erts_asm_bp_update_branch(ErtsCodePtr rw_p,
+                                             Uint32 expected_offset,
+                                             Uint32 target_offset) {
+    Uint32 volatile *rw_code = (Uint32 *)rw_p;
+#        if defined(__aarch64__)
+    Uint32 expected_branch = 0x14000000 | expected_offset;
+    Uint32 target_branch = 0x14000000 | target_offset;
+#        else
+    Uint32 expected_branch = 0x48000000 | (expected_offset << 2);
+    Uint32 target_branch = 0x48000000 | (target_offset << 2);
+#        endif
+
+    ASSERT(rw_code[0] == expected_branch);
+    (void)expected_branch;
+    rw_code[0] = target_branch;
+}
+
+static inline void erts_asm_bp_switch(ErtsCodePtr rw_p, bool enable) {
+#        if defined(__aarch64__)
+    const Uint32 branch_instruction_index =
+            erts_frame_layout == ERTS_FRAME_LAYOUT_FP_RA ? 2 : 1;
+#        else
+    /* MFLR, STDU, B .next, .enabled: BL breakpoint_handler, .next: */
+    const Uint32 branch_instruction_index = 2;
+#        endif
+    const Uint32 enabled_branch_offset =
+            BEAM_ASM_BP_RETURN_OFFSET / sizeof(Uint32) -
+            branch_instruction_index - 1;
+    const Uint32 disabled_branch_offset = enabled_branch_offset + 1;
+    Uint32 expected_branch_offset, target_branch_offset;
+
+    if (enable) {
+        expected_branch_offset = disabled_branch_offset;
+        target_branch_offset = enabled_branch_offset;
+    } else {
+        expected_branch_offset = enabled_branch_offset;
+        target_branch_offset = disabled_branch_offset;
+    }
+
+    rw_p = (ErtsCodePtr)((Uint32 *)rw_p + branch_instruction_index);
+    erts_asm_bp_update_branch(rw_p,
+                              expected_branch_offset,
+                              target_branch_offset);
+}
+#    endif
+
 static inline void erts_asm_bp_enable(ErtsCodePtr rw_p) {
-#    if defined(__aarch64__)
-    Uint32 volatile *rw_code = (Uint32 *)rw_p;
-
+#    if defined(__aarch64__) || defined(__powerpc64__)
     /* B .next, .enabled: BL breakpoint_handler, .next: */
-    ASSERT(rw_code[0] == 0x14000002);
-
-    /* Reroute the initial jump instruction to `.enabled`. */
-    rw_code[0] = 0x14000001;
-#    elif defined(__powerpc64__)
-    Uint32 volatile *rw_code = (Uint32 *)rw_p;
-
-    /* B .next, .enabled: BL breakpoint_handler, .next: */
-    ASSERT(rw_code[0] == 0x48000008);
-
-    /* Reroute the initial jump instruction to `.enabled`. */
-    rw_code[0] = 0x48000004;
+    erts_asm_bp_update_branch(rw_p, 2, 1);
 #    else /* x86_64 */
     byte volatile *rw_code = (byte *)rw_p;
 
@@ -214,22 +256,9 @@ static inline void erts_asm_bp_enable(ErtsCodePtr rw_p) {
 }
 
 static inline void erts_asm_bp_disable(ErtsCodePtr rw_p) {
-#    if defined(__aarch64__)
-    Uint32 volatile *rw_code = (Uint32 *)rw_p;
-
+#    if defined(__aarch64__) || defined(__powerpc64__)
     /* B .enabled, .enabled: BL breakpoint_handler, .next: */
-    ASSERT(rw_code[0] == 0x14000001);
-
-    /* Reroute the initial jump instruction back to `.next`. */
-    rw_code[0] = 0x14000002;
-#    elif defined(__powerpc64__)
-    Uint32 volatile *rw_code = (Uint32 *)rw_p;
-
-    /* B .enabled, .enabled: BL breakpoint_handler, .next: */
-    ASSERT(rw_code[0] == 0x48000004);
-
-    /* Reroute the initial jump instruction back to `.next`. */
-    rw_code[0] = 0x48000008;
+    erts_asm_bp_update_branch(rw_p, 1, 2);
 #    else /* x86_64 */
     byte volatile *rw_code = (byte *)rw_p;
 
@@ -250,13 +279,11 @@ static inline void erts_asm_bp_set_flag(ErtsCodeInfo *ci_rw,
 
     if (ci_rw->u.metadata.breakpoint_flag == ERTS_ASM_BP_FLAG_NONE) {
         ErtsCodePtr rw_p = erts_codeinfo_to_code(ci_rw);
-#    if defined(__aarch64__)
-        rw_p = (ErtsCodePtr)((Uint32 *)rw_p + 1);
-#    elif defined(__powerpc64__)
-        /* The branch comes after MFLR and STDU. */
-        rw_p = (ErtsCodePtr)((Uint32 *)rw_p + 2);
-#    endif
+#    if defined(__aarch64__) || defined(__powerpc64__)
+        erts_asm_bp_switch(rw_p, true);
+#    else
         erts_asm_bp_enable(rw_p);
+#    endif
     }
 
     ci_rw->u.metadata.breakpoint_flag |= flag;
@@ -274,13 +301,11 @@ static inline void erts_asm_bp_unset_flag(ErtsCodeInfo *ci_rw,
         /* We've removed the last flag, route the branch instruction back
          * past the prologue. */
         ErtsCodePtr rw_p = erts_codeinfo_to_code(ci_rw);
-#    if defined(__aarch64__)
-        rw_p = (ErtsCodePtr)((Uint32 *)rw_p + 1);
-#    elif defined(__powerpc64__)
-        /* The branch comes after MFLR and STDU. */
-        rw_p = (ErtsCodePtr)((Uint32 *)rw_p + 2);
-#    endif
+#    if defined(__aarch64__) || defined(__powerpc64__)
+        erts_asm_bp_switch(rw_p, false);
+#    else
         erts_asm_bp_disable(rw_p);
+#    endif
     }
 }
 

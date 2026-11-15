@@ -63,6 +63,7 @@
          otp_7550/1,
          otp_8051/1,
          format_warn/1,
+         check_format_string/1,
          on_load_successful/1, on_load_failing/1,
          too_many_arguments/1,
          basic_errors/1,bin_syntax_errors/1,
@@ -75,6 +76,7 @@
          otp_14285/1, otp_14378/1,
          external_funs/1,otp_15456/1,otp_15563/1,
          types/1,
+         type_error_messages/1,
          removed/1, otp_16516/1,
          inline_nifs/1,
          undefined_nifs/1,
@@ -96,6 +98,7 @@
          record_info_0/1,
          coverage/1,
          native_records/1,
+         cs_deprecated_attr/1,
          invalid_attribute/1,
          block_compr_assign/1]).
 
@@ -113,7 +116,7 @@ all() ->
      otp_5878, otp_5917, otp_6585, otp_6885, otp_10436, otp_11254,
      otp_11772, otp_11771, otp_11872, export_all,
      bif_clash, behaviour_basic, behaviour_multiple, otp_11861,
-     otp_7550, otp_8051, format_warn, {group, on_load},
+     otp_7550, otp_8051, format_warn, check_format_string, {group, on_load},
      too_many_arguments, basic_errors, bin_syntax_errors, predef,
      maps, maps_type, maps_parallel_match,
      otp_11851, otp_11879, otp_13230,
@@ -122,6 +125,7 @@ all() ->
      stacktrace_syntax, otp_14285, otp_14378, external_funs,
      otp_15456, otp_15563,
      types,
+     type_error_messages,
      removed, otp_16516,
      undefined_nifs,
      no_load_nif,
@@ -140,6 +144,7 @@ all() ->
      record_info_0,
      coverage,
      native_records,
+     cs_deprecated_attr,
      invalid_attribute,
      block_compr_assign].
 
@@ -1314,6 +1319,35 @@ types(Config) ->
     [] = run(Config, Ts),
     ok.
 
+%% GH-9851. Type-related messages use the name/arity format.
+type_error_messages(Config) when is_list(Config) ->
+    "type foo/0 undefined" =
+        format_error({undefined_type,{foo,0}}),
+    "type foo/2 is unused" =
+        format_error({unused_type,{foo,2}}),
+    "local redefinition of built-in type: map/1" =
+        format_error({redefine_builtin_type,{map,1}}),
+    "type foo/2 already defined" =
+        format_error({redefine_type,{foo,2}}),
+    "opaque type foo/1 is not exported" =
+        format_error({not_exported_opaque,{foo,1}}),
+    "the type m:t/2 is deprecated; use m:u/2 instead" =
+        format_error({deprecated_type,{m,t,2},"use m:u/2 instead"}),
+    "the type m:t/2 is deprecated and will be removed in OTP 42; "
+        "use m:u/2 instead" =
+        format_error({deprecated_type,{m,t,2},"use m:u/2 instead","OTP 42"}),
+    "the callback m:cb/1 is deprecated; use m:cb/2 instead" =
+        format_error({deprecated_callback,{m,cb,1},"use m:cb/2 instead"}),
+    "the callback m:cb/1 is deprecated and will be removed in OTP 42; "
+        "use m:cb/2 instead" =
+        format_error({deprecated_callback,{m,cb,1},"use m:cb/2 instead",
+                      "OTP 42"}),
+    "the type m:t/0 is removed; it was never used" =
+        format_error({removed_type,{m,t,0},"it was never used"}),
+    "the callback m:cb/2 is removed; it was never used" =
+        format_error({removed_callback,{m,cb,2},"it was never used"}),
+    ok.
+
 %% OTP-4671. Errors for unsafe variables.
 unsafe_vars(Config) when is_list(Config) ->
     Ts = [{unsafe1,
@@ -1705,18 +1739,6 @@ guard(Config) when is_list(Config) ->
     %% Well, these could be plain code...
     Ts = [{guard1,
            <<"-record(apa, {}).
-              t(A) when atom(A) ->
-                  atom;
-              t(A) when binary(A) ->
-                  binary;
-              t(A) when constant(A) ->
-                  constant;
-              t(A) when float(A) ->
-                  float;
-              t(A) when function(A) ->
-                  function;
-              t(A) when integer(A) ->
-                  integer;
               t(A) when is_atom(A) ->
                   is_atom;
               t(A) when is_binary(A) ->
@@ -1744,41 +1766,14 @@ guard(Config) when is_list(Config) ->
               t(A) when is_reference(A) ->
                   is_reference;
               t(A) when is_tuple(A) ->
-                  is_tuple;
-              t(A) when list(A) ->
-                  list;
-              t(A) when number(A) ->
-                  number;
-              t(A) when pid(A) ->
-                  pid;
-              t(A) when port(A) ->
-                  port;
-              t(A) when record(A, apa) ->
-                  record;
-              t(A) when reference(A) ->
-                  reference;
-              t(A) when tuple(A) ->
-                  tuple.
+                  is_tuple.
            ">>,
            [nowarn_obsolete_guard],
            {errors,
-	    [{{6,25},erl_lint,illegal_guard_expr},
-             {{18,25},erl_lint,illegal_guard_expr}],
+            [{{6,25},erl_lint,illegal_guard_expr}],
 	    []}},
           {guard2,
            <<"-record(apa,{}).
-              t1(A) when atom(A), atom(A) ->
-                  atom;
-              t1(A) when binary(A), binary(A) ->
-                  binary;
-              t1(A) when constant(A), constant(A) ->
-                  constant;
-              t1(A) when float(A), float(A) ->
-                  float;
-              t1(A) when function(A), function(A) ->
-                  function;
-              t1(A) when integer(A), integer(A) ->
-                  integer;
               t1(A) when is_atom(A), is_atom(A) ->
                   is_atom;
               t1(A) when is_binary(A), is_binary(A) ->
@@ -1806,40 +1801,14 @@ guard(Config) when is_list(Config) ->
               t1(A) when is_reference(A), is_reference(A) ->
                   is_reference;
               t1(A) when is_tuple(A), is_tuple(A) ->
-                  is_tuple;
-              t1(A) when list(A), list(A) ->
-                  list;
-              t1(A) when number(A), number(A) ->
-                  number;
-              t1(A) when pid(A), pid(A) ->
-                  pid;
-              t1(A) when port(A), port(A) ->
-                  port;
-              t1(A) when record(A, apa), record(A, apa) ->
-                  record;
-              t1(A) when reference(A), reference(A) ->
-                  reference;
-              t1(A) when tuple(A), tuple(A) ->
-                  tuple.
+                  is_tuple.
            ">>,
            [nowarn_obsolete_guard],
 	   {errors,[{{6,26},erl_lint,illegal_guard_expr},
-		    {{6,39},erl_lint,illegal_guard_expr},
-		    {{18,26},erl_lint,illegal_guard_expr},
-		    {{18,42},erl_lint,illegal_guard_expr}],
+                    {{6,42},erl_lint,illegal_guard_expr}],
 	    []}},
           {guard3,
            <<"-record(apa,{}).
-              t2(A) when atom(A); atom(A) ->
-                  atom;
-              t2(A) when binary(A); binary(A) ->
-                  binary;
-              t2(A) when float(A); float(A) ->
-                  float;
-              t2(A) when function(A); function(A) ->
-                  function;
-              t2(A) when integer(A); integer(A) ->
-                  integer;
               t2(A) when is_atom(A); is_atom(A) ->
                   is_atom;
               t2(A) when is_binary(A); is_binary(A) ->
@@ -1865,21 +1834,7 @@ guard(Config) when is_list(Config) ->
               t2(A) when is_reference(A); is_reference(A) ->
                   is_reference;
               t2(A) when is_tuple(A); is_tuple(A) ->
-                  is_tuple;
-              t2(A) when list(A); list(A) ->
-                  list;
-              t2(A) when number(A); number(A) ->
-                  number;
-              t2(A) when pid(A); pid(A) ->
-                  pid;
-              t2(A) when port(A); port(A) ->
-                  port;
-              t2(A) when record(A, apa); record(A, apa) ->
-                  record;
-              t2(A) when reference(A); reference(A) ->
-                  reference;
-              t2(A) when tuple(A); tuple(A) ->
-                  tuple.
+                  is_tuple.
            ">>,
            [nowarn_obsolete_guard],
 	   []},
@@ -1919,8 +1874,6 @@ guard(Config) when is_list(Config) ->
     [] = run(Config, Ts),
     Ts1 = [{guard5,
             <<"-record(apa, {}).
-               t3(A) when record(A, {apa}) ->
-                   foo;
                t3(A) when is_record(A, {apa}) ->
                    foo;
                t3(A) when erlang:is_record(A, {apa}) ->
@@ -1933,8 +1886,6 @@ guard(Config) when is_list(Config) ->
                    foo;
                t3(A) when erlang:is_record(A, apa, []) ->
                    foo;
-               t3(A) when record(A, apa) ->
-                   foo;
                t3(A) when is_record(A, apa) ->
                    foo;
                t3(A) when erlang:is_record(A, apa) ->
@@ -1946,8 +1897,7 @@ guard(Config) when is_list(Config) ->
 		     {{6,27},erl_lint,illegal_guard_expr},
 		     {{8,27},erl_lint,illegal_guard_expr},
 		     {{10,27},erl_lint,illegal_guard_expr},
-		     {{12,27},erl_lint,illegal_guard_expr},
-		     {{14,27},erl_lint,illegal_guard_expr}],
+                     {{12,27},erl_lint,illegal_guard_expr}],
 	     []}},
            {guard6,
             <<"-record(apa,{a=a,b=foo:bar()}).
@@ -1987,13 +1937,13 @@ guard(Config) when is_list(Config) ->
                      {{2,29},erl_lint,illegal_guard_expr}],
              []}},
            {guard10,
-            <<"is_port(_) -> false.
+            <<"port(_) -> false.
                t(P) when port(P) -> ok.
             ">>,
             [],
-            {error,
-	     [{{2,26},erl_lint,{obsolete_guard_overridden,port}}],
-	     [{{2,26},erl_lint,{obsolete_guard,{port,1}}}]}},
+            {errors,
+             [{{2,26},erl_lint,{illegal_guard_local_call,{port,1}}}],
+             []}},
            {guard11,
             <<"-record(bar, {a = mk_a()}).
                mk_a() -> 1.
@@ -2319,7 +2269,27 @@ otp_5917(Config) when is_list(Config) ->
     [] = run(Config, Ts),
     ok.
 
-%% OTP-6585. Check the deprecated guards list/1, pid/1, ....
+%% Check the 'deprecated_type' and 'deprecated_callback' attributes.
+cs_deprecated_attr(Config) when is_list(Config) ->
+    Ts = [{deprecated_type_1,
+          <<"-export_type([foo/0]).
+             -deprecated_type([{foo, 0, 1}]).
+             -type foo() :: integer().
+            ">>,
+           {[]},
+           {errors,[{{2,15},erl_lint,{invalid_deprecated,{foo,0,1}}}],
+            []}},
+          {deprecated_callback_1,
+          <<"-callback bar(integer()) -> ok.
+             -deprecated_callback([{bar, 1, 42}]).
+            ">>,
+           {[]},
+           {errors,[{{2,15},erl_lint,{invalid_deprecated,{bar,1,42}}}],
+            []}}],
+    [] = run(Config, Ts),
+    ok.
+
+%% OTP-6585. Check that deprecated guards list/1, pid/1, etc. are no longer recognized
 otp_6585(Config) when is_list(Config) ->
     Ts = [{otp_6585_1,
           <<"-export([t/0]).
@@ -2328,15 +2298,18 @@ otp_6585(Config) when is_list(Config) ->
 
              f(A) when list(A) -> list;
              f(R) when record(R, r) -> rec;
-             f(P) when pid(P) -> pid.
+             f(P) when pid(P) -> pid;
+             f(A) when float(A) -> float.
 
              t() ->
                  f([]).
             ">>,
-           [warn_obsolete_guard],
-           {warnings,[{{5,24},erl_lint,{obsolete_guard,{list,1}}},
-                      {{6,24},erl_lint,{obsolete_guard,{record,2}}},
-                      {{7,24},erl_lint,{obsolete_guard,{pid,1}}}]}}],
+           [],
+           {error,[{{5,24},erl_lint,illegal_guard_expr},
+                   {{6,24},erl_lint,illegal_guard_expr},
+                   {{7,24},erl_lint,illegal_guard_expr},
+                   {{8,24},erl_lint,{illegal_type_test,{float,1}}}],
+            [{{3,15},erl_lint,{unused_record,r}}]}}],
     [] = run(Config, Ts),
     ok.
 
@@ -3980,6 +3953,27 @@ format_warn(Config) when is_list(Config) ->
     format_level(3, L1+L2, Config),             %there is no level 3
     ok.
 
+%% Format controls are parsed as characters, not grapheme clusters.
+check_format_string(Config) when is_list(Config) ->
+    Combining = 16#301,
+    Invalid = [$~, Combining],
+    Error = {error, "invalid control ~" ++ [Combining]},
+    Error = erl_lint:check_format_string(Invalid),
+    Error = erl_lint:check_format_string("prefix" ++ Invalid),
+    Error = erl_lint:check_format_string("~p" ++ Invalid),
+    Error = erl_lint:check_format_string(Invalid, false),
+    try io_lib:format(Invalid, []) of
+        _ -> ct:fail(expected_badarg)
+    catch
+        error:badarg -> ok
+    end,
+    {ok, []} = erl_lint:check_format_string([]),
+    {ok, []} = erl_lint:check_format_string([$a, Combining]),
+    {ok, []} = erl_lint:check_format_string([$~, $~, Combining]),
+    {ok, [term, int]} =
+        erl_lint:check_format_string([$a, Combining] ++ "~p text ~c"),
+    ok.
+
 format_level(Level, Count, Config) ->
     W = get_compilation_result(Config, "format",
                                      [{warn_format, Level}]),
@@ -4176,8 +4170,14 @@ bin_syntax_errors(Config) ->
               t(X) ->
                 {<<X/binary-integer>>,<<X/signed-unsigned-integer>>,
                  <<X/little-big>>,<<X/unit:4-unit:8>>};
-              t(<<_:{A,B}>>) -> ok.
-
+              t(<<_:{A,B}>>) -> ok;
+              t(_) ->
+                {<<\"\\x{aa}\">>,
+                 <<\"\\x{aaa}\">>,
+                 <<0>>,<<-1>>,
+                 <<255>>,<<256>>,
+                 <<32767:15>>,<<32768:15>>,
+                 <<-32768:16/signed>>,<<-32769:16/signed>>}.
               l() ->
                   foo.
 	    ">>,
@@ -4198,8 +4198,14 @@ bin_syntax_errors(Config) ->
 	    [{{1,27},erl_lint,non_integer_bitsize},
              {{4,21},erl_lint,non_integer_bitsize},
              {{7,12},erl_lint,{bad_bitsize,"float"}},
-             {{13,21},erl_lint,non_integer_bitsize}]}}
-	 ],
+             {{13,21},erl_lint,non_integer_bitsize},
+             {{15,20},erl_lint,latin1_binary},
+             {{16,20},erl_lint,truncated_character},
+             {{17,26},erl_lint,{truncated_integer,-1,8,unsigned}},
+             {{18,28},erl_lint,{truncated_integer,256,8,unsigned}},
+             {{19,33},erl_lint,{truncated_integer,32768,15,unsigned}},
+             {{20,41},erl_lint,{truncated_integer,-32769,16,signed}}
+            ]}}],
     [] = run(Config, Ts),
     ok.
 
@@ -5372,6 +5378,54 @@ eep49(Config) when is_list(Config) ->
            {errors,[{{10,19},erl_lint,{unsafe_var,'A',{'else',{4,19}}}}],
             []}},
 
+          %% A maybe expression must not mark the variables already in
+          %% scope as used.
+          {unused_var1,
+           <<"t(Unused, X) ->
+                  case X of
+                      a -> maybe ok end;
+                      _ -> b
+                  end.
+           ">>,
+           [EnableMaybe],
+           {warnings,[{{1,23},erl_lint,{unused_var,'Unused'}}]}},
+          {unused_var2,
+           <<"t(Unused, X) ->
+                  case X of
+                      a -> maybe ok ?= X else _ -> error end;
+                      _ -> b
+                  end.
+           ">>,
+           [EnableMaybe],
+           {warnings,[{{1,23},erl_lint,{unused_var,'Unused'}}]}},
+          {unused_var3,
+           <<"t(X) ->
+                  Unused = X(),
+                  receive
+                      a -> maybe ok end
+                  end.
+           ">>,
+           [EnableMaybe],
+           {warnings,[{{2,19},erl_lint,{unused_var,'Unused'}}]}},
+          {used_var1,
+           <<"t(Used, X) ->
+                  case X of
+                      a -> maybe Used end;
+                      _ -> b
+                  end.
+           ">>,
+           [EnableMaybe],
+           []},
+          {used_var2,
+           <<"t(Used, X) ->
+                  case X of
+                      a -> maybe ok ?= X else _ -> Used end;
+                      _ -> b
+                  end.
+           ">>,
+           [EnableMaybe],
+           []},
+
           %% Using '?=' not at the top-level of a 'maybe' ... 'else' is forbidden.
           {illegal_maybe_match1,
            <<"t(X) ->
@@ -5846,6 +5900,12 @@ native_records(Conf) ->
            """,
            [],
            []},
+          {no_auto_import_guard,
+            <<"-compile([no_auto_import]).
+              t(X) when erlang:is_record(X, mod, a) -> ok.
+             ">>,
+           [],
+           []},
           {redefine_imported_native_record_1,
            <<"-record #a{}.
               -record(b, {}).
@@ -5903,6 +5963,13 @@ native_records(Conf) ->
                     {{2,35},erl_lint,{redefine_field,r2,a}},
                     {{3,30},erl_lint,{redefine_field,r3,a}}],
             []}},
+          {update_redefine_record_field,
+           <<"-record #a{a, b}.
+              update_local(A) -> A#a{a = 1, a = b}.
+              update_ext(B) -> B#ext:b{a = 1, a = b}.">>,
+           [],
+           {errors,[{{2,45},erl_lint,{redefine_field,a,a}},
+                    {{3,47},erl_lint,{redefine_field,{ext,b},a}}],[]}},
           {undefined_field_1,
            <<"-record #r{a=a, c=c}.
                mk() -> #r{a = a, b = b}.
@@ -6079,6 +6146,12 @@ native_records(Conf) ->
            """,
            [{i,DataDir}, {keep_all_warnings,true}],
            {warnings, [{{1,2},erl_lint,{native_record_header,a}}]}
+          },
+          {bad_import_record,
+           <<"-import_record([rec]).">>,
+           [],
+           {errors,[{{1,36},erl_parse,"bad "++["import_record"] ++" declaration"}],
+            []}
           }
          ],
     [] = run(Conf, Ts),

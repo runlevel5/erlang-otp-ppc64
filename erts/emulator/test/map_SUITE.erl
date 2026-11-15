@@ -43,6 +43,7 @@
          t_map_get/1,
          t_is_map/1,
          t_is_map_key/1,
+         t_is_map_key_guard/1,
 
          %% Specific Map BIFs
          t_bif_map_get/1,
@@ -100,10 +101,14 @@
 %% algorithm changes.
 -export([find_colliding_keys/1]).
 
+%% Keep the argument types unknown to the compiler in these JIT tests.
+-export([map_key_guard/2, map_key_guard_spill/2, map_key_body/2]).
+
 -include_lib("stdlib/include/ms_transform.hrl").
 
 -include_lib("common_test/include/ct_event.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(CHECK(Cond,Term),
 	case (catch (Cond)) of
@@ -148,7 +153,7 @@ groups() ->
        %% erlang
        t_erlang_hash, t_map_encode_decode,
        t_gc_rare_map_overflow,
-       t_map_size, t_map_get, t_is_map,
+       t_map_size, t_map_get, t_is_map, t_is_map_key, t_is_map_key_guard,
 
        %% non specific BIF related
        t_bif_build_and_check,
@@ -780,6 +785,8 @@ t_map_get(Config) when is_list(Config) ->
 
     {'EXIT',{{badkey,{1,1}},[{erlang,map_get,_,_}|_]}} =
 	(catch map_get({1,1}, id(#{{1,1.0}=>"tuple"}))),
+    {'EXIT',{{badkey,<<"missing">>},[{erlang,map_get,_,_}|_]}} =
+        (catch map_get(<<"missing">>, M1)),
     {'EXIT',{{badkey,a},[{erlang,map_get,_,_}|_]}} = (catch map_get(a, id(#{}))),
     {'EXIT',{{badkey,a},[{erlang,map_get,_,_}|_]}} =
 	(catch map_get(a, id(#{b=>1, c=>2}))),
@@ -790,6 +797,15 @@ t_map_get(Config) when is_list(Config) ->
     false = if map_get(x, M2) =:= 1 -> true; true -> false end,
     do_badmap(fun
         (T) when map_get(x, T) =:= 1 -> ok;
+        (T) -> false = is_map(T)
+    end),
+
+    true = if map_get(<<"k2">>, M1) =:= "v3" -> true; true -> false end,
+    false = if map_get(<<"missing">>, M1) =:= "v3" -> true;
+               true -> false
+            end,
+    do_badmap(fun
+        (T) when map_get(<<"k2">>, T) =:= "v3" -> ok;
         (T) -> false = is_map(T)
     end),
 
@@ -875,6 +891,63 @@ t_is_map_key(Config) when is_list(Config) ->
         (T) -> false = is_map(T)
     end),
     ok.
+
+t_is_map_key_guard(Config) when is_list(Config) ->
+    Keys = [a, 1, 1.0, 1 bsl 80, [], [a,b], {a,b}, <<"key">>,
+            #{a => b}, make_ref(), self(), fun id/1],
+    lists:foreach(
+      fun(Size) ->
+              Base = maps:from_list([{I,I} || I <- lists:seq(1, Size)]),
+              lists:foreach(
+                fun(Key) ->
+                        Hit = Base#{Key => value},
+                        Miss = maps:remove(Key, Base),
+                        present = ?MODULE:map_key_guard(Key, Hit),
+                        absent = ?MODULE:map_key_guard(Key, Miss),
+                        true = ?MODULE:map_key_body(Key, Hit),
+                        false = ?MODULE:map_key_body(Key, Miss),
+                        {Ref, present, {Key, Hit}} =
+                            ?MODULE:map_key_guard_spill(Key, Hit),
+                        true = is_reference(Ref),
+                        {_, absent, {Key, Miss}} =
+                            ?MODULE:map_key_guard_spill(Key, Miss)
+                end, Keys)
+      end, [0,1,8,31,32,33,256]),
+    %% Integer and float keys must remain distinct.
+    absent = ?MODULE:map_key_guard(1.0, #{1 => value}),
+    absent = ?MODULE:map_key_guard(1, #{1.0 => value}),
+    %% Aliasing the key and map must not clobber either operand.
+    Alias = id(#{a => b}),
+    absent = ?MODULE:map_key_guard(Alias, Alias),
+    do_badmap(
+      fun(Term) ->
+              not_map = ?MODULE:map_key_guard(a, Term),
+              {_, not_map, {a, Term}} =
+                  ?MODULE:map_key_guard_spill(a, Term),
+              try ?MODULE:map_key_body(a, Term) of
+                  _ -> error(expected_badmap)
+              catch
+                  error:{badmap,Term} -> ok
+              end
+      end),
+    ok.
+
+map_key_guard(Key, Map) when is_map_key(Key, Map) -> present;
+map_key_guard(Key, Map) when not is_map_key(Key, Map) -> absent;
+map_key_guard(_, _) -> not_map.
+
+map_key_guard_spill(Key, Map) ->
+    Ref = make_ref(),
+    erlang:yield(),
+    Result = if
+                 is_map_key(Key, Map) -> present;
+                 not is_map_key(Key, Map) -> absent;
+                 true -> not_map
+             end,
+    {Ref, Result, {Key, Map}}.
+
+map_key_body(Key, Map) ->
+    is_map_key(Key, Map).
 
 build_and_check_size([K|Ks],N,M0) ->
     N = map_size(M0),
@@ -3109,6 +3182,27 @@ t_erts_internal_order(_Config) when is_list(_Config) ->
     -1 = erts_internal:cmp_term(0,2147483648),
     0  = erts_internal:cmp_term(2147483648,2147483648),
     1  = erts_internal:cmp_term(2147483648,0),
+
+    %% check that atom comparison in map keys is consistent across nodes
+    %% We use erl_eval to create atoms and reverse the order the keys are listed in the map
+    %% to make sure that the atom indexes are different.
+    CmpTerm =
+        fun(AMap, BMap) ->
+                {ok, Peer, Node} = ?CT_PEER(),
+                try
+                    erpc:call(Node,
+                              fun() ->
+                                      erts_internal:cmp_term(
+                                        erl_eval:eval_str(AMap ++ ".\n"),
+                                        erl_eval:eval_str(BMap ++ ".\n"))
+                              end)
+                after
+                    peer:stop(Peer)
+                end
+        end,
+    Res1 = CmpTerm("#{ bbb => 2, aaa => 1 }", "#{ bbb => 1, aaa => 2 }"),
+    Res2 = CmpTerm("#{ aaa => 1, bbb => 2 }", "#{ aaa => 2, bbb => 1 }"),
+    ?assertEqual(Res1, Res2),
 
     %% Make sure it's not the internal flatmap order
     %% where low indexed 'true' < 'a'.

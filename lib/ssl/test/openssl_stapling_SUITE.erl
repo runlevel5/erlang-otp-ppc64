@@ -118,6 +118,7 @@ init_per_suite(Config0) ->
         false  ->
             {skip, {bad_openssl_version, Version}}
     end.
+
 end_per_suite(Config) ->
     ssl_test_lib:end_per_suite(Config).
 

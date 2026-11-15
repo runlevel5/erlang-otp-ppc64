@@ -228,7 +228,8 @@ all() ->
 	      {socket_close, "ESOCK_TEST_SOCK_CLOSE", include},
 	      {tickets,      "ESOCK_TEST_TICKETS",    include},
 	      {batch_cases,  "ESOCK_TEST_BATCH",      include}],
-    [use_group(Group, Env, Default) || {Group, Env, Default} <- Groups].
+    [Spec || {Group, Env, Default} <- Groups,
+             Spec <- use_group(Group, Env, Default)].
 
 use_group(_Group, undefined, exclude) ->
     [];
@@ -8976,19 +8977,31 @@ sc_rc_tcp_client_create(Domain, Proto) ->
     end.
 
 sc_rc_tcp_client_bind(Sock, Domain) ->
-    i("sc_rc_tcp_client_bind -> entry"),
+    i("~s -> entry with"
+      "~n   Domain: ~p", [?FUNCTION_NAME, Domain]),
     LSA = which_local_socket_addr(Domain),
+    i("~s -> try bind with"
+      "~n   LSA: ~p", [?FUNCTION_NAME, LSA]),
     case socket:bind(Sock, LSA) of
         ok ->
+            i("~s -> bound - try sockname", [?FUNCTION_NAME]),
             case socket:sockname(Sock) of
                 {ok, #{family := local, path := Path}} ->
+                    i("~s -> got (local) sockname: "
+                      "~n   Path: ~p", [?FUNCTION_NAME, Path]),
                     Path;
-                {ok, _} ->
+                {ok, SN} ->
+                    i("~s -> sockname: "
+                      "~n   ~p", [?FUNCTION_NAME, SN]),
                     undefined;
                 {error, Reason1} ->
+                    ?SEV_EPRINT("bound but failed sockname: "
+                                "~n   Reason: ~p", [Reason1]),
                     exit({sockname, Reason1})
             end;
         {error, Reason} ->
+            ?SEV_EPRINT("bind failed: "
+                        "~n   Reason: ~p", [Reason]),
             exit({bind, Reason})
     end.
 
@@ -10285,6 +10298,7 @@ ioctl_nread(_Config) when is_list(_Config) ->
     ?TT(?SECS(5)),
     tc_try(?FUNCTION_NAME,
            fun() ->
+                   has_support_ipv4(),
                    has_support_ioctl_requests(),
                    has_support_ioctl_nread()
            end,
@@ -15095,8 +15109,8 @@ recvmmsg_sendmmsg_loopback_udp4(_Config) when is_list(_Config) ->
             ok = socket:connect(S2, #{family => inet, addr => Addr, port => LocalPort}),
             %% Send 10 messages at once
             Msgs = [
-                #{iov => [list_to_binary(["msg", integer_to_list(N)])]}
-             || N <- lists:seq(1, 10)
+                    #{iov => [list_to_binary(["msg", integer_to_list(N)])]}
+                    || N <- lists:seq(1, 10)
             ],
             ok = socket:sendmmsg(S2, Msgs, [], infinity),
             %% Receive all 10 messages at once
@@ -15145,7 +15159,15 @@ recvmmsg_sendmmsg_loopback_udp6(_Config) when is_list(_Config) ->
 	       ok = socket:sendmmsg(S2, Msgs, [], infinity),
 	       %% Receive all 5 messages at once
 	       {ok, Received} = socket:recvmmsg(S1, 10, 0, 0, [], infinity),
-	       true = length(Received) =:= 5,
+	       if 
+                   length(Received) =:= 5 ->
+                       ok;
+                   true ->
+                       ?P("Invalid number of messages received:"
+                          "~n   Expected: 5"
+                          "~n   Actual:   ~p", [length(Received)]),
+                       ct:fail(unexpected_return)
+               end,
 	       ok = socket:close(S1),
 	       ok = socket:close(S2),
 	       ok

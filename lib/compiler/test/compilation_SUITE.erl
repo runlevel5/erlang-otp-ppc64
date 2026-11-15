@@ -65,6 +65,8 @@
          use_nifs/1,gh_11352/1,gh_11367/1,
          gh_11414/1,
          gh_11534/0,gh_11534/1,
+         gh_11415/1,
+         gh_7478_a/1,gh_7478_b/1,gh_7478_c/1,
          gh_11735/1]).
 
 -include_lib("common_test/include/ct.hrl").
@@ -96,7 +98,10 @@ groups() ->
        string_table,otp_8949_a,split_cases,
        infinite_loop, native_record,
        use_nifs,gh_11352,gh_11367,gh_11414,
-       gh_11534,gh_11735]}].
+       gh_11534,
+       gh_11415,
+       gh_7478_a,gh_7478_b,gh_7478_c,
+       gh_11735]}].
 
 init_per_suite(Config) ->
     test_lib:recompile(?MODULE),
@@ -153,6 +158,11 @@ end_per_group(_GroupName, Config) ->
 ?comp(gh_11352).
 ?comp(gh_11367).
 ?comp(gh_11414).
+?comp(gh_11415).
+
+?comp(gh_7478_a).
+?comp(gh_7478_b).
+?comp(gh_7478_c).
 
 infinite_loop() -> [{timetrap,{minutes,1}}].
 ?comp(infinite_loop).

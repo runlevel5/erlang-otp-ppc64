@@ -83,7 +83,8 @@
          id/1,
          nif_term_type/1,
          nif_term_size/1,
-         nif_atom_out_cache_index/1
+         nif_atom_out_cache_index/1,
+         resource_binary_under_reporting/1
 	]).
 
 -export([many_args_100/100]).
@@ -203,7 +204,8 @@
        atom_out_cache_index_nif/1,
        max_atom_out_cache_index_nif/0,
        dynamic_resource_call/4,
-       msa_find_y_nif/1
+       msa_find_y_nif/1,
+       resource_binary_info_nif/1
       ]).
 
 -define(nif_stub,nif_stub_error(?LINE)).
@@ -258,14 +260,15 @@ all() ->
      pid,
      nif_term_type,
      nif_term_size,
-     nif_atom_out_cache_index].
+     nif_atom_out_cache_index,
+     resource_binary_under_reporting].
 
 init_per_suite(Config) ->
     erts_debug:set_internal_state(available_internal_state, true),
     Config.
 
 end_per_suite(_Config) ->
-    catch erts_debug:set_internal_state(available_internal_state, false),
+    erts_debug:set_internal_state(available_internal_state, false),
     ok.
 
 groups() ->
@@ -320,7 +323,8 @@ init_per_testcase(Select, Config) when Select =:= select;
 init_per_testcase(_Case, Config) ->
     %% Clear any resource dtor data before test starts in case another tc
     %% left it in a bad state
-    catch last_resource_dtor_call(),
+    try last_resource_dtor_call()
+    catch _:_ -> ok end,
     Config.
 
 end_per_testcase(t_on_load, _Config) ->
@@ -2436,7 +2440,8 @@ resource_new_do2(Type) ->
 resource_neg(TypeA) ->
     resource_neg_do(TypeA),
 
-    catch exit(42), % dummy exception to purge saved stacktraces from earlier exception
+    try exit(42) % dummy exception to purge saved stacktraces from earlier exception
+    catch _:_ -> ok end,
     erlang:garbage_collect(),
     {_,_,2} = last_resource_dtor_call(),
     ok.
@@ -2445,8 +2450,8 @@ resource_neg_do(TypeA) ->
     TypeB = get_resource_type(1),
     ResA = make_new_resource(TypeA, <<"Arnold">>),
     ResB= make_new_resource(TypeB, <<"Bobo">>),
-    {'EXIT',{badarg,_}} = (catch get_resource(TypeA, ResB)),
-    {'EXIT',{badarg,_}} = (catch get_resource(TypeB, ResA)),
+    ?assertError(badarg, get_resource(TypeA, ResB)),
+    ?assertError(badarg, get_resource(TypeB, ResA)),
 
     %% Test init_resource_type fail outside load/upgrade
     {0, ?RT_CREATE} = init_resource_type("in_vain", ?RT_CREATE),
@@ -2458,31 +2463,39 @@ resource_neg_do(TypeA) ->
 %% Test enif_make_resource_binary
 resource_binary(Config) when is_list(Config) ->
     ensure_lib_loaded(Config, 1),
-    {Ptr,Bin} = resource_binary_do(),
+    
+    [] = last_resource_dtor_call(),             %Assertion.
+    ok = resource_binary_do(),
+
     erlang:garbage_collect(),
-    Last = last_resource_dtor_call(),
-    ?CHECK({Ptr,Bin,1}, Last),
+    {_Ptr,_Data,1} = last_resource_dtor_call(), %Assertion.
+
     ok.
 
 resource_binary_do() ->
     Bin = <<"Hej Hopp i lingonskogen">>,
-    {Ptr,ResBin1} = make_new_resource_binary(Bin),
-    ResBin1 = Bin,          
-    ResInfo = {Ptr,_} = get_resource(binary_resource_type,ResBin1),
+    {_Ptr,ResBin1} = make_new_resource_binary(Bin),
+
+    ResBin1 = Bin,
+    ResInfo = resource_binary_info_nif(ResBin1),
 
     Papa = self(),
     {Forwarder,_} = spawn_monitor(fun() -> forwarder(Papa) end),
     io:format("sending to forwarder pid=~p\n",[Forwarder]),  
     Forwarder ! ResBin1,
+
     ResBin2 = receive_any(),
     ResBin2 = ResBin1,
-    ResInfo = get_resource(binary_resource_type,ResBin2),
+    ResInfo = resource_binary_info_nif(ResBin2),
+
     Forwarder ! terminate,
     {'DOWN', _, process, Forwarder, 1} = receive_any(),
     erlang:garbage_collect(),
-    ResInfo = get_resource(binary_resource_type,ResBin1),
-    ResInfo = get_resource(binary_resource_type,ResBin2),
-    ResInfo.
+
+    ResInfo = resource_binary_info_nif(ResBin1),
+    ResInfo = resource_binary_info_nif(ResBin2),
+
+    ok.
 
 %% Test resource takeover by module upgrade
 resource_takeover(Config) when is_list(Config) ->    
@@ -3243,7 +3256,7 @@ send3_new_state(State, Blob) ->
 %% Negative testing of load_nif
 neg(Config) when is_list(Config) ->
     TmpMem = tmpmem(),
-    {'EXIT',{badarg,_}} = (catch erlang:load_nif(badarg, 0)),
+    ?assertError(badarg, erlang:load_nif(badarg, 0)),
     
     Data = proplists:get_value(data_dir, Config),
     File = filename:join(Data, "nif_mod"),
@@ -3931,7 +3944,7 @@ nif_port_command(Config) ->
 
     %% Test that invalid arguments correctly returns
     %% badarg and that the port survives.
-    {'EXIT', {badarg, _}} = (catch port_command_nif(Port, [ok])),
+    ?assertError(badarg, port_command_nif(Port, [ok])),
 
     IoList = [lists:duplicate(100,<<"hello">>),"\n"],
     true = port_command_nif(Port, [IoList]),
@@ -3941,7 +3954,7 @@ nif_port_command(Config) ->
 
     port_close(Port),
 
-    {'EXIT', {badarg, _}} = (catch port_command_nif(Port, "hello\n")),
+    ?assertError(badarg, port_command_nif(Port, "hello\n")),
     ok.
 
 nif_snprintf(Config) ->
@@ -4344,29 +4357,29 @@ nif_ioq(Config) ->
 
     false = ioq_nif(peek_head, Q),
 
-    {'EXIT', {badarg, _}} = (catch ioq_nif(deq, Q, 1)),
-    {'EXIT', {badarg, _}} = (catch ioq_nif(enqv, Q, 1, 1234)),
+    ?assertError(badarg, ioq_nif(deq, Q, 1)),
+    ?assertError(badarg, ioq_nif(enqv, Q, 1, 1234)),
 
     false = ioq_nif(peek_head, Q),
 
-    {'EXIT', {badarg, _}} = (catch ioq_nif(enqv, Q, [atom_in_list], 0)),
-    {'EXIT', {badarg, _}} = (catch ioq_nif(enqv, Q, [make_ref()], 0)),
-    {'EXIT', {badarg, _}} = (catch ioq_nif(enqv, Q, [256], 0)),
-    {'EXIT', {badarg, _}} = (catch ioq_nif(enqv, Q, [-1], 0)),
-    {'EXIT', {badarg, _}} = (catch ioq_nif(enqv, Q, [#{}], 0)),
-    {'EXIT', {badarg, _}} = (catch ioq_nif(enqv, Q, [1 bsl 64], 0)),
-    {'EXIT', {badarg, _}} = (catch ioq_nif(enqv, Q, [{tuple}], 0)),
+    ?assertError(badarg, ioq_nif(enqv, Q, [atom_in_list], 0)),
+    ?assertError(badarg, ioq_nif(enqv, Q, [make_ref()], 0)),
+    ?assertError(badarg, ioq_nif(enqv, Q, [256], 0)),
+    ?assertError(badarg, ioq_nif(enqv, Q, [-1], 0)),
+    ?assertError(badarg, ioq_nif(enqv, Q, [#{}], 0)),
+    ?assertError(badarg, ioq_nif(enqv, Q, [1 bsl 64], 0)),
+    ?assertError(badarg, ioq_nif(enqv, Q, [{tuple}], 0)),
 
     false = ioq_nif(peek_head, Q),
 
-    {'EXIT', {badarg, _}} = (catch ioq_nif(inspect,  [atom_in_list], use_stack)),
-    {'EXIT', {badarg, _}} = (catch ioq_nif(inspect,  [make_ref()], no_stack)),
-    {'EXIT', {badarg, _}} = (catch ioq_nif(inspect,  [256], use_stack)),
-    {'EXIT', {badarg, _}} = (catch ioq_nif(inspect,  [-1], no_stack)),
-    {'EXIT', {badarg, _}} = (catch ioq_nif(inspect,  [#{}], use_stack)),
-    {'EXIT', {badarg, _}} = (catch ioq_nif(inspect,  [1 bsl 64], no_stack)),
-    {'EXIT', {badarg, _}} = (catch ioq_nif(inspect,  [{tuple}], use_stack)),
-    {'EXIT', {badarg, _}} = (catch ioq_nif(inspect,  <<"binary">>, use_stack)),
+    ?assertError(badarg, ioq_nif(inspect,  [atom_in_list], use_stack)),
+    ?assertError(badarg, ioq_nif(inspect,  [make_ref()], no_stack)),
+    ?assertError(badarg, ioq_nif(inspect,  [256], use_stack)),
+    ?assertError(badarg, ioq_nif(inspect,  [-1], no_stack)),
+    ?assertError(badarg, ioq_nif(inspect,  [#{}], use_stack)),
+    ?assertError(badarg, ioq_nif(inspect,  [1 bsl 64], no_stack)),
+    ?assertError(badarg, ioq_nif(inspect,  [{tuple}], use_stack)),
+    ?assertError(badarg, ioq_nif(inspect,  <<"binary">>, use_stack)),
 
     ioq_nif(destroy, Q),
 
@@ -4574,7 +4587,36 @@ nif_atom_out_cache_index(Config) ->
       end,
       Atoms),
 
-    {'EXIT', {badarg, _}} = (catch atom_out_cache_index_nif(42)),
+    ?assertError(badarg, atom_out_cache_index_nif(42)),
+    ok.
+
+resource_binary_under_reporting(Config) ->
+    ensure_lib_loaded(Config),
+
+    Data = <<0:(1 bsl 16)>>,
+
+    {_PtrA, ResBinA} = make_new_resource_binary(Data),
+    true = binary:referenced_byte_size(ResBinA) >=
+        binary:referenced_byte_size(Data),
+
+    %% Smoke test: kill ResBinA to see if garbage collection works properly.
+    erlang:garbage_collect(),
+
+    {_PtrB, ResBinB} = make_new_resource_binary(Data),
+    true = binary:referenced_byte_size(ResBinB) >=
+        binary:referenced_byte_size(Data),
+
+    %% Smoke test: move ResBinB into a compressed ETS table to see if
+    %% BITSTRING_INTERNAL_REF and friends work as they should.
+    Tid = ets:new(dummy, [private, compressed]),
+    ets:insert(Tid, {1, ResBinB}),
+    ResBinB = ets:lookup_element(Tid, 1, 2),
+    Data = ResBinB,                              %Assertion.
+    ets:delete(Tid),
+
+    %% Smoke test: kill everything.
+    erlang:garbage_collect(),
+
     ok.
 
 %% Verify match state arguments are not passed to declared NIFs.
@@ -4733,6 +4775,8 @@ atom_out_cache_index_nif(_) -> ?nif_stub.
 max_atom_out_cache_index_nif() -> ?nif_stub.
 
 dynamic_resource_call(_,_,_,_) -> ?nif_stub.
+
+resource_binary_info_nif(_) -> ?nif_stub.
 
 nif_stub_error(Line) ->
     exit({nif_not_loaded,module,?MODULE,line,Line}).

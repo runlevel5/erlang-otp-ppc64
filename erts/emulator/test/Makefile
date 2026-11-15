@@ -41,6 +41,7 @@ MODULES= \
 	bif_SUITE \
 	big_SUITE \
 	binary_SUITE \
+	bitops_SUITE \
 	bs_bincomp_SUITE \
 	bs_bit_binaries_SUITE \
 	bs_construct_SUITE \
@@ -180,6 +181,8 @@ STDLIB_MODULES=error_info_lib
 ERL_FILES= $(MODULES:%=%.erl) \
 	$(STDLIB_MODULES:%=$(ERL_TOP)/lib/stdlib/test/%.erl)
 
+HRL_FILES= erts_test_utils.hrl
+
 TARGET_FILES = $(MODULES:%=$(EBIN)/%.$(EMULATOR))
 
 KERNEL_MODULES=gen_tcp_dist
@@ -240,9 +243,6 @@ targets: $(TARGET_FILES)
 %_no_opt_SUITE.erl: %_SUITE.erl
 	sed -e 's;-module($(basename $<));-module($(basename $@));' $< > $@
 
-%_r26_SUITE.erl: %_SUITE.erl
-	sed -e 's;-module($(basename $<));-module($(basename $@));' $< > $@
-
 %_stripped_types_SUITE.erl: %_SUITE.erl
 	sed -e 's;-module($(basename $<));-module($(basename $@));' $< > $@
 
@@ -257,6 +257,7 @@ release_tests_spec: make_emakefile
 	$(INSTALL_DIR) "$(RELSYSDIR)"
 	$(INSTALL_DATA) $(EMAKEFILE) $(TEST_SPEC_FILES) \
 		$(ERL_FILES) "$(RELSYSDIR)"
+	$(INSTALL_DATA) $(HRL_FILES) "$(RELSYSDIR)"
 	$(INSTALL_DATA) $(NO_OPT_ERL_FILES) "$(RELSYSDIR)"
 	$(INSTALL_DATA) $(KERNEL_ERL_FILES) "$(RELSYSDIR)"
 	$(INSTALL_DATA) $(STRIPPED_TYPES_ERL_FILES) "$(RELSYSDIR)"

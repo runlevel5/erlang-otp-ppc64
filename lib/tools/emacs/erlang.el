@@ -823,8 +823,12 @@ resulting regexp is surrounded by \\_< and \\_>."
       "group_leader"
       "halt"
       "hd"
+      "integer_set_bits"
+      "integer_signed_width"
       "integer_to_list"
       "integer_to_binary"
+      "integer_trailing_zeroes"
+      "integer_unsigned_width"
       "iolist_size"
       "iolist_to_binary"
       "is_alive"
@@ -870,11 +874,13 @@ resulting regexp is surrounded by \\_< and \\_>."
       "nodes"
       "now"
       "open_port"
+      "pid_to_binary"
       "pid_to_list"
       "port_close"
       "port_command"
       "port_connect"
       "port_control"
+      "port_to_binary"
       "port_to_list"
       "pre_loaded"
       "process_flag"
@@ -882,6 +888,7 @@ resulting regexp is surrounded by \\_< and \\_>."
       "processes"
       "purge_module"
       "put"
+      "ref_to_binary"
       "ref_to_list"
       "register"
       "registered"
@@ -1558,9 +1565,10 @@ Other commands:
       (modify-syntax-entry ?# "." table)
       ;; (modify-syntax-entry ?$ "\\" table)   ;; Creates problems with indentation afterwards
       ;; (modify-syntax-entry ?$ "'" table)    ;; Creates syntax highlighting and indentation problems
-      (modify-syntax-entry ?$ "/" table)    ;; Misses the corner case "string that ends with $"
-      ;; we have to live with that for now..it is the best alternative
-      ;; that can be worked around with "string that ends with \$"
+      ;; The corner case "string that ends with $", where the dollar
+      ;; sign must not escape the quote, is handled by
+      ;; `erlang-syntax-propertize-function'.
+      (modify-syntax-entry ?$ "/" table)
       (modify-syntax-entry ?% "<" table)
       (modify-syntax-entry ?& "." table)
       (modify-syntax-entry ?\' "\"" table)
@@ -1583,6 +1591,115 @@ Other commands:
       ;;(modify-syntax-entry ?\273 ")?\253" table)
 
       (setq erlang-mode-syntax-table table))))
+
+;; The syntax of `$' in `erlang-mode-syntax-table' is character
+;; quote, which is right for the character literals `$"' and `$''
+;; in code but wrong for a `$' that happens to be the last
+;; character of a string or of a quoted atom, and wrong for `$\"'
+;; and `$\'' where the backslash, not the dollar sign, does the
+;; escaping.  Triple-or-more quoted strings are not expressible in
+;; a syntax table at all.  Both are fixed up with `syntax-table'
+;; text properties applied by `erlang-syntax-propertize-function',
+;; which take effect because `erlang-electric-init' sets
+;; `parse-sexp-lookup-properties'.
+
+(defconst erlang-syntax-propertize-function
+  (syntax-propertize-rules
+   ;; `$\"' and `$\'' escape two characters, not one.
+   ("\\$\\\\[\"']" (0 (ignore (erlang-syntax-propertize-dollar t))))
+   ;; `$"' and `$'' are character literals in code, but a plain
+   ;; dollar sign inside a string or a quoted atom.
+   ("\\$[\"']" (0 (ignore (erlang-syntax-propertize-dollar nil))))
+   ;; Any other dollar sign.  In code the character-quote syntax of
+   ;; `$' is correct and left untouched, but inside an ordinary string
+   ;; or quoted atom the dollar sign must not quote the following
+   ;; character (e.g. the backslash in `"$\\"'), or it would consume
+   ;; the escape and expose the closing quote.
+   ("\\$" (0 (ignore (erlang-syntax-propertize-dollar nil))))
+   ;; Runs of three or more double quotes delimit a verbatim string.
+   ("\"\"\"+" (0 (ignore (erlang-syntax-propertize-quote-run)))))
+  "Value for `syntax-propertize-function' in Erlang mode.")
+
+(defun erlang-syntax-propertize-dollar (escapes-backslash)
+  "Set the syntax of the dollar sign the last search matched.
+ESCAPES-BACKSLASH is non-nil when the match is `$\\\"' or `$\\'',
+where the dollar sign is followed by a backslash escape."
+  (let* ((dollar (match-beginning 0))
+         (ppss (save-excursion (syntax-ppss dollar))))
+    (cond
+     ;; In a comment nothing is a delimiter to begin with.
+     ((nth 4 ppss) nil)
+     ;; In a verbatim string the contents are taken as they are
+     ;; written, and the delimiter cannot be reached from inside.
+     ((eq t (nth 3 ppss)) nil)
+     ;; In an ordinary string or a quoted atom the dollar sign is a
+     ;; character of the string.  It must not escape the quote that
+     ;; ends the string, nor the backslash of an escape sequence.
+     ((nth 3 ppss)
+      (put-text-property dollar (1+ dollar)
+                         'syntax-table (string-to-syntax "w")))
+     ;; In code `$\"' and `$\'' are a backslash escape introduced by
+     ;; a dollar sign: leave the escaping to the backslash, or the
+     ;; dollar sign would consume it and expose the quote.
+     (escapes-backslash
+      (put-text-property dollar (1+ dollar)
+                         'syntax-table (string-to-syntax "'")))
+     ;; In code `$"' and `$'' are character literals, which the
+     ;; character quote syntax of `$' already handles.
+     (t nil))))
+
+(defun erlang-syntax-propertize-quote-run ()
+  "Set the syntax of the run of double quotes the last search matched.
+A run of three or more double quotes opens or closes a verbatim
+string (EEP 64), optionally after a sigil prefix such as `~b'.
+The opening run is followed by nothing but whitespace to the end
+of the line, and the string is closed by a run of exactly as many
+double quotes, preceded on its line by nothing but whitespace.
+
+One character of each run is given generic string fence syntax
+and the rest punctuation syntax, so that the run acts as a single
+delimiter and ordinary quotes inside the string are contents."
+  (let* ((beg (match-beginning 0))
+         (end (match-end 0))
+         (ppss (save-excursion (syntax-ppss beg))))
+    (cond
+     ((nth 4 ppss) nil)
+     ;; Inside a verbatim string: the closing run, if this is one.
+     ((eq t (nth 3 ppss))
+      (when (and (= (- end beg)
+                    (erlang-syntax-quote-run-length (nth 8 ppss)))
+                 (save-excursion
+                   (goto-char beg)
+                   (skip-chars-backward " \t")
+                   (bolp)))
+        ;; Fence on the last quote of the run, so that the quotes
+        ;; before it are contents rather than a second delimiter.
+        (put-text-property (1- end) end
+                           'syntax-table (string-to-syntax "|"))
+        (unless (= beg (1- end))
+          (put-text-property beg (1- end)
+                             'syntax-table (string-to-syntax ".")))))
+     ;; Inside an ordinary string or quoted atom the first quote of
+     ;; the run ends it; leave that to the syntax table.
+     ((nth 3 ppss) nil)
+     ;; In code: an opening run, if nothing but whitespace follows it
+     ;; on the line.  Otherwise leave it alone -- four or more quotes
+     ;; in an expression are adjacent empty strings.
+     ((save-excursion (goto-char end) (skip-chars-forward " \t") (eolp))
+      ;; Fence on the first quote of the run, so that the quotes
+      ;; after it are contents and (nth 8 ppss) is the start of the
+      ;; run, which is what `erlang-syntax-quote-run-length' measures.
+      (put-text-property beg (1+ beg)
+                         'syntax-table (string-to-syntax "|"))
+      (unless (= (1+ beg) end)
+        (put-text-property (1+ beg) end
+                           'syntax-table (string-to-syntax ".")))))))
+
+(defun erlang-syntax-quote-run-length (pos)
+  "Return the number of consecutive double quotes starting at POS."
+  (save-excursion
+    (goto-char pos)
+    (skip-chars-forward "\"")))
 
 
 
@@ -1622,6 +1739,7 @@ Other commands:
   (setq-local indent-region-function 'erlang-indent-region)
   (setq-local comment-indent-function 'erlang-comment-indent)
   (setq-local parse-sexp-ignore-comments t)
+  (setq-local syntax-propertize-function erlang-syntax-propertize-function)
   (setq-local dabbrev-case-fold-search nil)
   (setq-local imenu-prev-index-position-function
               'erlang-beginning-of-function)
@@ -1651,44 +1769,7 @@ Other commands:
                                     erlang-font-lock-keywords-3
                                     erlang-font-lock-keywords-4)
          nil nil ((?_ . "w")) erlang-beginning-of-clause
-         (font-lock-mark-block-function . erlang-mark-clause)
-         (font-lock-syntactic-keywords
-          ;; A dollar sign right before the double quote that ends a
-          ;; string is not a character escape.
-          ;;
-          ;; And a "string" consists of a double quote not escaped by a
-          ;; dollar sign, any number of non-backslash non-newline
-          ;; characters or escaped backslashes, a dollar sign
-          ;; (otherwise we wouldn't care) and a double quote.  This
-          ;; doesn't match multi-line strings, but this is probably
-          ;; the best we can get, since while font-locking we don't
-          ;; know whether matching started inside a string: limiting
-          ;; search to a single line keeps things sane.
-          . (("\\(?:^\\|[^$]\\)\"\\(?:[^\"\n]\\|\\\\\"\\)*\\(\\$\\)\"" 1 "w")
-             ;; Likewise for atoms
-             ("\\(?:^\\|[^$]\\)'\\(?:[^'\n]\\|\\\\'\\)*\\(\\$\\)'" 1 "w")
-             ;; And the dollar sign in $\" or $\' escapes two
-             ;; characters, not just one.
-             ("\\(\\$\\)\\\\[\"']" 1 "'")
-             ;; To highlight triple-or-more quoted strings decently:
-             ;; mark the second to last character in a sequence
-             ;; containing an even number of " characters
-             ;; as an expression prefix character.
-             ;; This makes an opening even number of (4 or above)
-             ;; " characters one or more empty strings
-             ;; followed by one prefixed single opening ",
-             ;; so effectively just a single ".
-             ;; A closing even number of " becomes a single closing "
-             ;; followed by zero or more empty strings,
-             ;; and then one string containing just a prefix ".
-             ;; An odd number of opening or closing " works without
-             ;; any tricks since they become empty strings and
-             ;; an opening or closing single " last or first.
-             ;; " chars within a triple-or-more quoted string really
-             ;; does not work, but a single "-quoted string on one line
-             ;; only looses the string highlighting.
-             ("\\(?:\"\"\\)+\\(\"?\\)\"" 1 "'")
-             )))))
+         (font-lock-mark-block-function . erlang-mark-clause))))
 
 
 
@@ -2742,6 +2823,18 @@ Return nil if line starts inside string, t if in a comment."
 Value is list (stack token-start token-type in-what)."
   (goto-char from)                      ; Start at the beginning
   (erlang-skip-blank to)
+  ;; The contents of a verbatim (triple-quoted) string are not code,
+  ;; so skip over the whole string to avoid counting parentheses in
+  ;; the string on the stack.  This parser dispatches on `char-syntax',
+  ;; which ignores the `syntax-table' text properties that
+  ;; `erlang-syntax-propertize-function' applies to delimit verbatim
+  ;; strings; `syntax-ppss' honours those properties, so use it to
+  ;; detect and step past such a string.
+  (let ((ppss (syntax-ppss)))
+    (when (eq t (nth 3 ppss))
+      (goto-char (nth 8 ppss))
+      (condition-case nil (forward-sexp 1) (error (goto-char to)))
+      (erlang-skip-blank to)))
   (let ((cs (char-syntax (following-char)))
          (stack (car state))
          (token (point))
@@ -2843,18 +2936,38 @@ Value is list (stack token-start token-type in-what)."
       (forward-sexp 1))
      ;; String: Try to skip over it. (Catch error if not complete.)
      ((= cs ?\")
-       (condition-case nil
-         (progn
-           (forward-sexp 1)
-           (if (> (point) to)
-             (progn
-               (erlang-push (list 'string token (current-column)) stack)
-               (setq in-what 'string)
-               (goto-char to))
-             ))
-         (error
-           (setq in-what 'string)
-           (goto-char to))))
+      ;; A run of three or more double quotes delimits a verbatim
+      ;; (triple-quoted) string.  `char-syntax' does not see the
+      ;; `syntax-table' text properties that
+      ;; `erlang-syntax-propertize-function' uses to mark such a run,
+      ;; so a plain `forward-sexp' would mistake the first two quotes
+      ;; for an empty string and parse the verbatim contents as code.
+      ;; Detect the opening fence and skip the whole verbatim string
+      ;; using the property-aware `syntax-ppss'.
+      (let ((pp-status (save-excursion (syntax-ppss (1+ (point))))))
+        (if (eq t (nth 3 pp-status))
+          (condition-case nil
+            (progn
+              (goto-char (nth 8 pp-status))
+              (forward-sexp 1)
+              (when (> (point) to)
+                (setq in-what 'string)
+                (goto-char to)))
+            (error
+              (setq in-what 'string)
+              (goto-char to)))
+          (condition-case nil
+            (progn
+              (forward-sexp 1)
+              (if (> (point) to)
+                (progn
+                  (erlang-push (list 'string token (current-column)) stack)
+                  (setq in-what 'string)
+                  (goto-char to))
+                ))
+            (error
+              (setq in-what 'string)
+              (goto-char to))))))
 
      ;; Expression prefix e.i. $ or ^ (Note ^ can be in the character
      ;; literal $^ or part of string and $ outside of a string denotes
@@ -2933,15 +3046,32 @@ Value is list (stack token-start token-type in-what)."
         )
 
        ;; Type spec's
-       ((looking-at "-type\\s \\|-opaque\\s ")
+       ((looking-at "-\\(type\\|opaque\\)\\(\\s \\|(\\)")
         (if stack
             (forward-char 1)
           (erlang-push (list 'type token (current-column)) stack)
-          (forward-char 6)))
-       ((looking-at "-spec\\s ")
+          ;; Skip past the attribute keyword.  The parenthesized
+          ;; forms "-type(...)" / "-opaque(...)" are followed directly
+          ;; by "(", so stop on it; the whitespace forms keep the
+          ;; previous behaviour of skipping six characters.
+          (if (eq (char-after (match-end 1)) ?\()
+              (goto-char (match-end 1))
+            (forward-char 6))))
+       ((looking-at "-spec\\(\\s \\|(\\)")
         (if stack
             (forward-char 1)
-          (forward-char 6)
+          ;; Skip "-spec".  The modern form "-spec f(...)" is followed
+          ;; by whitespace, which is skipped along with the "-spec"
+          ;; (6 characters) as before.  The parenthesized form
+          ;; "-spec(...)" is followed directly by an opening
+          ;; parenthesis, so skip only the "-spec" (5 characters) and
+          ;; leave point on the "(".  In both cases push the spec and
+          ;; its argument context, so that a `fun' type inside the
+          ;; spec balances its parentheses against the enclosing
+          ;; `spec'.
+          (if (eq (char-after (+ (point) 5)) ?\()
+              (forward-char 5)
+            (forward-char 6))
           (erlang-push (list 'spec (point) (current-column)) stack)
           (skip-chars-forward "^(\n")
           (erlang-push (list 'spec_arg (point) (current-column)) stack)
@@ -2979,7 +3109,15 @@ Value is list (stack token-start token-type in-what)."
              (erlang-pop stack)
              (if (and (eq (car (car stack)) 'fun)
                       (or (eq (car (car (last stack))) 'spec)
-                          (eq (car (car (last stack))) 'type))) ;; -type()
+                          (eq (car (car (last stack))) 'type) ;; -type()
+                          ;; A `fun' type used as a type annotation,
+                          ;; e.g. a record or map field `F :: fun(...)'
+                          ;; or a nested `fun' type.  Here the stack
+                          ;; bottom is not `spec'/`type' (it may be a
+                          ;; `-record(' paren), so detect the type
+                          ;; context from the `::' directly below the
+                          ;; `fun'.
+                          (eq (car (car (cdr stack))) '::)))
                  ;; Inside fun type def ') closes fun definition
                  (erlang-pop stack)))
             ((eq (car (car stack)) 'icr)
@@ -3001,7 +3139,17 @@ Value is list (stack token-start token-type in-what)."
 
      ;; Character quote: Skip it and the quoted char.
      ((= cs ?/)
-      (forward-char 2))
+      ;; A dollar sign quotes the following character literal.  When
+      ;; that character is a backslash escape (e.g. `$\"' or `$\\'),
+      ;; the escaped character belongs to the literal too, so skip the
+      ;; dollar sign, the backslash and the escaped character.
+      ;; Otherwise skip the dollar sign and the single quoted
+      ;; character.  Skipping too few characters here would, for
+      ;; `$\"', leave the double quote to be mistaken for the start of
+      ;; a string.
+      (if (eq (char-after (1+ (point))) ?\\)
+          (forward-char 3)
+        (forward-char 2)))
 
      ;; Character escape: Skip it and the escape sequence.
      ((= cs ?\\)
@@ -3446,11 +3594,19 @@ Return t unless search stops due to end of buffer."
           (forward-char 1))))
   ;; The regexp matches a function header that isn't
   ;; included in a string.
-  (and (re-search-forward "\\(\\`\\|\\`\n\\|[^\\]\n\\)\\(-?[a-z]\\|'\\|-\\)"
-         nil 'move (- arg))
-       (let ((beg (match-beginning 2)))
-         (and beg (goto-char beg))
-         t)))
+
+  (let (found done)
+    (while (not done)
+      (if (not (re-search-forward
+                 "\\(\\`\\|\\`\n\\|[^\\]\n\\)\\(-?[a-z]\\|'\\|-\\)"
+                 nil 'move (- arg)))
+        (setq done t)
+        (let ((beg (match-beginning 2)))
+          (and beg (goto-char beg))
+          (if (and (> arg 0) beg (nth 3 (syntax-ppss beg)))
+            (setq arg 1)
+            (setq found t done t)))))
+    found))
 
 (defun erlang-end-of-clause (&optional arg)
   "Move to the end of the current clause.

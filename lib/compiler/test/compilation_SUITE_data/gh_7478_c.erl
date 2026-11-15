@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2008-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -19,14 +19,22 @@
 %%
 %% %CopyrightEnd%
 %%
--module(code_archive_dict_app).
--behaviour(application).
 
-%% Public
--export([start/2, stop/1]).
+-module(gh_7478_c).
+-export([?MODULE/0, gh_7478_c/1]).
 
-start(_Type, Args) ->
-    code_archive_dict_sup:start_link(Args).
-
-stop(_State) ->
+?MODULE() ->
+    ok = try gh_7478_c(false) catch error:{bad_generator,ok} -> ok end,
+    ok = try gh_7478_c(true) catch error:{bad_generator,ok} -> ok end,
+    ok = try gh_7478_c([]) catch error:{bad_generator,ok} -> ok end,
     ok.
+
+gh_7478_c(A) ->
+    <<0 || try
+               [ 0 || _ := _ <- ok]
+           catch
+               _ ->
+                   false
+           end and A,
+           _ <- ok
+    >>.

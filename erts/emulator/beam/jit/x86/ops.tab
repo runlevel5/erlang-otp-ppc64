@@ -740,6 +740,28 @@ bif2 _Fail _Bif=u$bif:erlang:min/2 Src1 Src2 Dst =>
 bif_max s s d
 bif_min s s d
 
+#
+# BIFs integer_trailing_zeroes/1, integer_set_bits/1,
+# integer_unsigned_width/1, integer_signed_width/1 are instructions
+#
+
+bif1 Fail _Bif=u$bif:erlang:integer_trailing_zeroes/1 Src=d Dst=d =>
+    i_ctz Fail Src Dst
+
+bif1 Fail _Bif=u$bif:erlang:integer_set_bits/1 Src=d Dst=d =>
+    i_popcount Fail Src Dst
+
+bif1 Fail _Bif=u$bif:erlang:integer_unsigned_width/1 Src=d Dst=d =>
+    i_unsigned_width Fail Src Dst
+
+bif1 Fail _Bif=u$bif:erlang:integer_signed_width/1 Src=d Dst=d =>
+    i_signed_width Fail Src Dst
+
+i_ctz j s d
+i_popcount j s d
+i_unsigned_width j s d
+i_signed_width j s d
+
 bif1 _Fail Bif S1 Dst | never_fails(Bif) => nofail_bif1 S1 Bif Dst
 bif2 _Fail Bif S1 S2 Dst | never_fails(Bif) => nofail_bif2 S1 S2 Bif Dst
 
@@ -1160,7 +1182,7 @@ gc_bif2 Fail1 _Live1 u$bif:erlang:stimes/2 S1 S2 Dst1 |
     i_mul_add Fail1 S1 S2 S4 S3 Dst1
 
 gc_bif2 Fail _Live u$bif:erlang:stimes/2 S1 S2 Dst =>
-    i_mul_add Fail S1 S2 Dst i Dst
+    i_mul_add Fail S1 S2 Dst u Dst
 
 gen_plus Fail _Live S1 S2 Dst => i_plus S1 S2 Fail Dst
 
@@ -1235,6 +1257,7 @@ i_minus s s j d
 i_unary_minus s j d
 
 i_mul_add j s s s s d
+i_mul_add j s s s t d
 
 i_m_div j s s d
 
@@ -1316,8 +1339,9 @@ update_record a I s d I *
 update_record_in_place I s d I *
 
 #
-# Native records (OTP 29).
+# Native records (introduced in OTP 29).
 #
+
 
 is_any_native_record f xy
 
@@ -1325,6 +1349,16 @@ is_native_record f xy a a
 
 get_record_elements Fail Src Size Matches=* | map_key_sort(Size, Matches) =>
     i_get_record_elements Fail Src Size Matches
+
+get_record_elements_id _Fail Name=a Src Size Matches=* |
+  map_key_sort(Size, Matches) =>
+    get_local_record_elements(Name, Src, Size, Matches)
+
+get_record_elements_id Fail _Id Src Size Matches=* |
+  map_key_sort(Size, Matches) =>
+    i_get_record_elements Fail Src Size Matches
+
+i_get_local_record_elements/3
 
 put_record j Name=a n Dst Live Size New=* =>
     create_local_record(Name, Dst, Live, Size, New)
@@ -1340,10 +1374,23 @@ create_local_native_record Def=q Dst Live Size New=* |
 
 create_local_native_record/4
 
-i_create_local_native_record q d t I *
+update_record_id j Hint Name=a Src Dst Live Size Updates=* |
+  map_key_sort(Size, Updates) =>
+    update_local_record(Hint, Name, Src, Dst, Live, Size, Updates)
 
-i_get_record_elements f xy I *
+update_record_id Fail=j _Hint _Id Src Dst Live Size Updates=* |
+  map_key_sort(Size, Updates) =>
+    i_update_native_record Fail Src Dst Live Size Updates
+
+i_update_local_native_record/6
+
+i_create_local_native_record q d t I *
 i_create_native_record j c d t I *
+
+i_get_local_record_elements q xy I *
+i_get_record_elements j xy I *
+
+i_update_local_native_record a q s d t I *
 i_update_native_record j s d t I *
 
 is_record_accessible f xy a

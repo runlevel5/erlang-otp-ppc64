@@ -434,17 +434,20 @@ local_time() ->
 
 -doc(#{equiv => local_time_to_system_time(LocalTime, [])}).
 -doc(#{since => <<"OTP 28.0">>}).
--spec local_time_to_system_time(datetime1970()) -> pos_integer().
+-spec local_time_to_system_time(datetime1970()) -> non_neg_integer().
 local_time_to_system_time(LocalTime) ->
     local_time_to_system_time(LocalTime, []).
 
 -doc(#{since => <<"OTP 28.0">>}).
 -doc """
 Converts local time into system time.
+
+`LocalTime` must be a datetime that results in a system time at or after Jan 1, 1970.
+
 Error will occur if the local time is non existing or ambiguous due to DST,
 see [`calendar:local_time_to_universal_time_dst/1`](`local_time_to_universal_time_dst/1`).
 """.
--spec local_time_to_system_time(datetime1970(), Options) -> pos_integer() when
+-spec local_time_to_system_time(LocalTime :: datetime1970(), Options) -> non_neg_integer() when
       Options :: [Option],
       Option :: {unit, erlang:time_unit()}.
 local_time_to_system_time(LocalTime, Options) ->
@@ -461,8 +464,9 @@ local_time_to_system_time(LocalTime, Options) ->
 %% local_time_to_universal_time(DateTime)
 %%
 -doc """
-Converts from local time to Universal Coordinated Time (UTC). `DateTime1` must
-refer to a local date after Jan 1, 1970.
+Converts from local time to Universal Coordinated Time (UTC).
+
+`DateTime1` must be a datetime that results in a UTC date at or after Jan 1, 1970.
 
 > #### Warning {: .warning }
 >
@@ -485,8 +489,9 @@ local_time_to_universal_time(DateTime, IsDst) ->
     erlang:localtime_to_universaltime(DateTime, IsDst).
 
 -doc """
-Converts from local time to Universal Coordinated Time (UTC). `DateTime1` must
-refer to a local date after Jan 1, 1970.
+Converts from local time to Universal Coordinated Time (UTC).
+
+`DateTime1` must be a datetime that results in a UTC date at or after Jan 1, 1970.
 
 The return value is a list of 0, 1, or 2 possible UTC times:
 
@@ -610,22 +615,22 @@ rfc3339_to_system_time(List, Options) when is_list(List) ->
 rfc3339_to_system_time_bin(
     <<$-, Year0:4/binary, $-, Month0:2/binary, $-, Day0:2/binary, _T,
       Hour0:2/binary, $:, Min0:2/binary, $:, Sec0:2/binary, TimeStr/binary>> = DateTimeBin, Options) ->
-    Hour = binary_to_integer(Hour0),
-    Min = binary_to_integer(Min0),
-    Sec = binary_to_integer(Sec0),
-    Year = -binary_to_integer(Year0),
-    Month = binary_to_integer(Month0),
-    Day = binary_to_integer(Day0),
+    Hour = digits(Hour0),
+    Min = digits(Min0),
+    Sec = digits(Sec0),
+    Year = -digits(Year0),
+    Month = digits(Month0),
+    Day = digits(Day0),
     rfc3339_to_system_time_1(DateTimeBin, Options, Year, Month, Day, Hour, Min, Sec, 0, binary_to_list(TimeStr));
 rfc3339_to_system_time_bin(
     <<Year0:4/binary, $-, Month0:2/binary, $-, Day0:2/binary, _T,
       Hour0:2/binary, $:, Min0:2/binary, $:, Sec0:2/binary, TimeStr/binary>> = DateTimeBin, Options) ->
-    Hour = binary_to_integer(Hour0),
-    Min = binary_to_integer(Min0),
-    Sec = binary_to_integer(Sec0),
-    Year = binary_to_integer(Year0),
-    Month = binary_to_integer(Month0),
-    Day = binary_to_integer(Day0),
+    Hour = digits(Hour0),
+    Min = digits(Min0),
+    Sec = digits(Sec0),
+    Year = digits(Year0),
+    Month = digits(Month0),
+    Day = digits(Day0),
     rfc3339_to_system_time_1(DateTimeBin, Options, Year, Month, Day, Hour, Min, Sec, 0, binary_to_list(TimeStr)).
 
 %% _T is the character separating the date and the time:
@@ -633,22 +638,22 @@ rfc3339_to_system_time_bin(
 rfc3339_to_system_time_list(
     [$-, Y1, Y2, Y3, Y4, $-, Mon1, Mon2, $-, D1, D2, _T,
      H1, H2, $:, Min1, Min2, $:, S1, S2 | TimeStr] = DateTimeString, Options) ->
-    Hour = list_to_integer([H1, H2]),
-    Min = list_to_integer([Min1, Min2]),
-    Sec = list_to_integer([S1, S2]),
-    Year = -list_to_integer([Y1, Y2, Y3, Y4]),
-    Month = list_to_integer([Mon1, Mon2]),
-    Day = list_to_integer([D1, D2]),
+    Hour = digits([H1, H2]),
+    Min = digits([Min1, Min2]),
+    Sec = digits([S1, S2]),
+    Year = -digits([Y1, Y2, Y3, Y4]),
+    Month = digits([Mon1, Mon2]),
+    Day = digits([D1, D2]),
     rfc3339_to_system_time_1(DateTimeString, Options, Year, Month, Day, Hour, Min, Sec, 0, TimeStr);
 rfc3339_to_system_time_list(
     [Y1, Y2, Y3, Y4, $-, Mon1, Mon2, $-, D1, D2, _T,
      H1, H2, $:, Min1, Min2, $:, S1, S2 | TimeStr] = DateTimeString, Options) ->
-    Hour = list_to_integer([H1, H2]),
-    Min = list_to_integer([Min1, Min2]),
-    Sec = list_to_integer([S1, S2]),
-    Year = list_to_integer([Y1, Y2, Y3, Y4]),
-    Month = list_to_integer([Mon1, Mon2]),
-    Day = list_to_integer([D1, D2]),
+    Hour = digits([H1, H2]),
+    Min = digits([Min1, Min2]),
+    Sec = digits([S1, S2]),
+    Year = digits([Y1, Y2, Y3, Y4]),
+    Month = digits([Mon1, Mon2]),
+    Day = digits([D1, D2]),
     rfc3339_to_system_time_1(DateTimeString, Options, Year, Month, Day, Hour, Min, Sec, 0, TimeStr).
 
 rfc3339_to_system_time_1(DateTimeIn, Options, Year, Month, Day, 23, 59, 60, 0, TimeStr) ->
@@ -695,8 +700,7 @@ seconds_to_daystime(Secs) ->
 %%
 -type secs_per_day() :: 0..86399.
 -doc """
-Computes the time from the specified number of seconds. `Seconds` must be less
-than the number of seconds per day (86400).
+Computes the time from the specified number of seconds.
 """.
 -spec seconds_to_time(Seconds) -> time() when
       Seconds :: secs_per_day().
@@ -748,8 +752,10 @@ Valid options:
 
 - **`{offset, Offset}`** - The offset, either a string or an integer, to be
   included in the formatted string. An empty string, which is the default, is
-  interpreted as local time. A non-empty string is included as is. The time unit
-  of the integer is the same as the one of `Time`.
+  interpreted as local time. A non-empty string must be `"Z"`, `"z"`, or have
+  the form `+HH:MM` or `-HH:MM`, where `HH` is two-digit hours and `MM` is
+  two-digit minutes (for example, `"+02:00"`). It is included as is. The time
+  unit of the integer is the same as the one of `Time`.
 
 - **`{time_designator, Character}`** - The character used as time designator,
   that is, the date and time separator. The default is `$T`.
@@ -812,7 +818,9 @@ system_time_to_rfc3339(Time, Options) ->
 
 system_time_to_rfc3339_do(Time, Options, Unit, OffsetOption) ->
     T = proplists:get_value(time_designator, Options, $T),
-    AdjustmentSecs = offset_adjustment(Time, Unit, OffsetOption),
+    %% An RFC 3339 offset has no seconds, so leave them out of the
+    %% adjustment too, or the time would not match the offset
+    AdjustmentSecs = offset_adjustment(Time, Unit, OffsetOption) div 60 * 60,
     Offset = offset(OffsetOption, AdjustmentSecs),
     Adjustment = erlang:convert_time_unit(AdjustmentSecs, second, Unit),
     AdjustedTime = Time + Adjustment,
@@ -932,9 +940,9 @@ valid_date1(Y, M, D) when is_integer(Y), M > 0, M < 13, D > 0 ->
 valid_date1(_, _, _) ->
     false.
 
--doc "This function checks if a date is a valid.".
+-doc "This function checks if a date is valid.".
 -spec valid_date(Date) -> boolean() when
-      Date :: date().
+      Date :: {Year :: integer(), Month :: integer(), Day :: integer()}.
 valid_date({Y, M, D}) ->
     valid_date(Y, M, D).
 
@@ -997,18 +1005,31 @@ offset_string_adjustment(_Time, _Unit, "z") ->
     0;
 offset_string_adjustment(_Time, _Unit, Tz) ->
     [Sign, H1, H2 | MinutesDiff] = Tz,
-    Hour = list_to_integer([H1, H2]),
+    Hour = digits([H1, H2]),
     Min = case MinutesDiff of
               [$:, M1, M2] ->
-                  list_to_integer([M1, M2]);
+                  digits([M1, M2]);
               [] ->
                   0
           end,
-    Adjustment = 3600 * Hour + 60 * Min,
+    Adjustment = offset_seconds(Hour, Min),
     case Sign of
         $- -> -Adjustment;
         $+ -> Adjustment
     end.
+
+offset_seconds(Hour, Min) when is_integer(Hour, 0, 23), is_integer(Min, 0, 59) ->
+    3600 * Hour + 60 * Min.
+
+digits(Digits) when is_binary(Digits) ->
+    digits(binary_to_list(Digits), 0);
+digits(Digits) ->
+    digits(Digits, 0).
+
+digits([D | Ds], N) when is_integer(D, $0, $9) ->
+    digits(Ds, 10 * N + (D - $0));
+digits([], N) ->
+    N.
 
 local_offset(SystemTime, Unit) ->
     %% Not optimized for special cases.

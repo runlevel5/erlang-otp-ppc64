@@ -118,6 +118,7 @@ mk_dir_path/1,
 setup_all_user_host_keys/1,
 setup_all_user_host_keys/2,
 setup_all_user_host_keys/3,
+clean_all_user_host_keys/1,
 setup_all_host_keys/1,
 setup_all_host_keys/2,
 setup_all_user_keys/2,
@@ -139,7 +140,8 @@ get_public_key_algorithms_with_valid_host_key/1,
 get_public_key_algorithms_with_valid_host_key/2,
 remove_comment/1,
 timetrap_scale/0,
-connect_with_retry/2
+connect_with_retry/2,
+with_retry/2, with_retry/3
         ]).
 
 %% logger callbacks and related helpers
@@ -209,23 +211,35 @@ connect_with_retry(Host, Port, Options0) ->
                              {save_accepted_host, false},
                              {user_interaction, false}
                             ], Options0),
-    connect_with_retry_loop(Host, Port, Options, 3, 1000).
+    with_retry(fun() -> ssh:connect(Host, Port, Options, 10000) end, 3, 1000).
 
-connect_with_retry_loop(Host, Port, Options, 0, _Delay) ->
-    R = ssh:connect(Host, Port, Options),
-    ?CT_LOG("ssh:connect(~p, ~p, ...) -> ~p", [Host, Port, R]),
-    {ok, ConnectionRef} = R,
-    ConnectionRef;
-connect_with_retry_loop(Host, Port, Options, Retries, Delay) ->
-    case ssh:connect(Host, Port, Options, 10000) of
-        {ok, Ref} ->
-            ?CT_LOG("ssh:connect(~p, ~p, ...) -> {ok,~p}", [Host, Port, Ref]),
-            Ref;
+%% Retry a transient-failing action with exponential backoff.
+%% Fun returns {ok, R} | {error, Reason}. Retries on {error,_} and on an
+%% exit/timeout raised by the action (e.g. a bounded gen_statem:call that
+%% timed out), sleeping Delay ms and doubling it between attempts. The
+%% final attempt is unguarded so a genuine, repeatable failure surfaces
+%% with its real reason instead of being masked. Returns R on success.
+with_retry(Fun, Attempts) ->
+    with_retry(Fun, Attempts, 1000).
+
+with_retry(Fun, 1, _Delay) ->
+    {ok, R} = Fun(),
+    R;
+with_retry(Fun, Attempts, Delay) when Attempts > 1 ->
+    try Fun() of
+        {ok, R} ->
+            R;
         {error, Reason} ->
-            ?CT_LOG("ssh:connect(~p, ~p, ...) failed: ~p, ~p retries left",
-                    [Host, Port, Reason, Retries - 1]),
+            ?CT_LOG("with_retry: {error,~p}, ~p attempt(s) left",
+                    [Reason, Attempts - 1]),
             timer:sleep(Delay),
-            connect_with_retry_loop(Host, Port, Options, Retries - 1, Delay * 2)
+            with_retry(Fun, Attempts - 1, Delay * 2)
+    catch
+        exit:{timeout, _} = Reason ->
+            ?CT_LOG("with_retry: exit ~p, ~p attempt(s) left",
+                    [Reason, Attempts - 1]),
+            timer:sleep(Delay),
+            with_retry(Fun, Attempts - 1, Delay * 2)
     end.
 
 set_opts_if_not_set(OptsToSet, Options0) ->
@@ -868,7 +882,7 @@ installed_ssh_version(TimeoutReturn) ->
         {open_ssh_version, V} ->
             V
     after ?TIMEOUT ->
-            exit(Pid, kill),
+            exit_signal(Pid, kill),
             TimeoutReturn
     end.
 
@@ -1237,6 +1251,19 @@ setup_all_user_host_keys(DataDir, UserDir, SysDir) ->
                         end
                 end, [], ssh_transport:supported_algorithms(public_key)).
 
+clean_all_user_host_keys(Config) ->
+    PrivDir = proplists:get_value(priv_dir, Config),
+    clean_all_user_host_keys(PrivDir, filename:join(PrivDir, "system")).
+
+clean_all_user_host_keys(UserDir, SysDir) ->
+    lists:foreach(
+      fun(Alg) ->
+              file:delete(filename:join(UserDir, file_base_name(user, Alg))),
+              file:delete(filename:join(SysDir, file_base_name(system, Alg)))
+      end, ssh_transport:supported_algorithms(public_key)),
+    file:delete(filename:join(UserDir, "authorized_keys")),
+    file:del_dir(SysDir),
+    ok.
 
 setup_all_host_keys(Config) ->
     DataDir = proplists:get_value(data_dir, Config),
@@ -1337,6 +1364,9 @@ file_base_name(user,   'rsa-sha2-256'       ) -> "id_rsa";
 file_base_name(user,   'rsa-sha2-384'       ) -> "id_rsa";
 file_base_name(user,   'rsa-sha2-512'       ) -> "id_rsa";
 file_base_name(user,   'ssh-dss'            ) -> "id_dsa";
+file_base_name(user,   'ssh-mldsa-44'       ) -> "id_mldsa44";
+file_base_name(user,   'ssh-mldsa-65'       ) -> "id_mldsa65";
+file_base_name(user,   'ssh-mldsa-87'       ) -> "id_mldsa87";
 file_base_name(user,   'ssh-ed25519'        ) -> "id_ed25519";
 file_base_name(user,   'ssh-ed448'          ) -> "id_ed448";
 file_base_name(user,   'ssh-rsa'            ) -> "id_rsa";
@@ -1353,6 +1383,9 @@ file_base_name(system, 'rsa-sha2-256'       ) -> "ssh_host_rsa_key";
 file_base_name(system, 'rsa-sha2-384'       ) -> "ssh_host_rsa_key";
 file_base_name(system, 'rsa-sha2-512'       ) -> "ssh_host_rsa_key";
 file_base_name(system, 'ssh-dss'            ) -> "ssh_host_dsa_key";
+file_base_name(system, 'ssh-mldsa-44'       ) -> "ssh_host_mldsa44_key";
+file_base_name(system, 'ssh-mldsa-65'       ) -> "ssh_host_mldsa65_key";
+file_base_name(system, 'ssh-mldsa-87'       ) -> "ssh_host_mldsa87_key";
 file_base_name(system, 'ssh-ed25519'        ) -> "ssh_host_ed25519_key";
 file_base_name(system, 'ssh-ed448'          ) -> "ssh_host_ed448_key";
 file_base_name(system, 'ssh-rsa'            ) -> "ssh_host_rsa_key";

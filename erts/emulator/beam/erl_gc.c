@@ -423,6 +423,7 @@ erts_gc_after_bif_call_lhf(Process* p, ErlHeapFragment *live_hf_end,
     if (!p->mbuf) {
         /* Must have GC:d in BIF call... invalidate live_hf_end */
         live_hf_end = ERTS_INVALID_HFRAG_PTR;
+        p->live_hf_end = ERTS_INVALID_HFRAG_PTR;
     }
 
     if (p->flags & (F_HIBERNATE_SCHED | F_DISABLE_GC)) {
@@ -443,6 +444,12 @@ erts_gc_after_bif_call_lhf(Process* p, ErlHeapFragment *live_hf_end,
          * up the hibernation by an ordinary GC...
          */
 	return result;
+    }
+
+    /* Consume the marker from the completed trapping BIF exactly once. */
+    if (p->live_hf_end != ERTS_INVALID_HFRAG_PTR) {
+        live_hf_end = p->live_hf_end;
+        p->live_hf_end = ERTS_INVALID_HFRAG_PTR;
     }
 
     if (p->sig_qs.flags & (FS_ON_HEAP_MSGQ|FS_OFF_HEAP_MSGQ_CHNG)) {
@@ -792,10 +799,11 @@ garbage_collect(Process* p, ErlHeapFragment *live_hf_end,
 	    goto delay_gc_before_start;
     }
 
+    /* A saved marker is consumed by erts_gc_after_bif_call_lhf. */
+    ASSERT(p->live_hf_end == ERTS_INVALID_HFRAG_PTR);
+
     if (p->abandoned_heap)
 	live_hf_end = ERTS_INVALID_HFRAG_PTR;
-    else if (p->live_hf_end != ERTS_INVALID_HFRAG_PTR)
-	live_hf_end = p->live_hf_end;
 
     ERTS_MSACC_SET_STATE_CACHED(ERTS_MSACC_STATE_GC);
 
@@ -1088,7 +1096,6 @@ garbage_collect_hibernate(Process* p, int check_long_gc)
     stack_area_sz = stack_size * sizeof(Eterm);
 
     erts_deallocate_young_generation(p);
-    erts_free(ERTS_ALC_T_TMP_HEAP, collection_heap);
 
     p->heap = final_heap;
     p->heap_sz = final_size;
@@ -1105,6 +1112,8 @@ garbage_collect_hibernate(Process* p, int check_long_gc)
                    heap_offset, heap_area, heap_area_sz,
                    stack_offset, stack_area, stack_area_sz,
                    p->arg_reg, p->arity);
+
+    erts_free(ERTS_ALC_T_TMP_HEAP, collection_heap);
 
     if (erts_frame_layout == ERTS_FRAME_LAYOUT_FP_RA) {
         FRAME_POINTER(p) += stack_offset;
@@ -4023,6 +4032,7 @@ check_all_heap_terms_in_range(int (*check_eterm)(Eterm),
             off_heap_common:
                 {
                     int tari = thing_arityval(val);
+                    ASSERT(tari >= 0);
                     tp += tari;
                 }
                 break;
@@ -4036,6 +4046,7 @@ check_all_heap_terms_in_range(int (*check_eterm)(Eterm),
             default:
                 {
                     int tari = header_arity(val);
+                    ASSERT(tari >= 0);
                     tp += tari;
                 }
                 break;

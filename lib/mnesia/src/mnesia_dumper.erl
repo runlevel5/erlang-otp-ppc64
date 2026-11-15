@@ -511,7 +511,7 @@ disc_delete_table(Tab, Storage) ->
 		    case get({?MODULE,Tab}) of
 			{opened_dumper, dcl} ->
 			    del_opened_tab(Tab),
-			    mnesia_log:unsafe_close_log(Tab);
+                            mnesia_log:unsafe_close_log({?MODULE, Tab});
 			_ ->
 			    ok
 		    end,
@@ -862,7 +862,10 @@ insert_op(Tid, _, {op, delete_table, TabDef}, InPlace, InitBy) ->
 		    ignore;
 		_ ->
 		    mnesia_schema:ram_delete_table(Tab, Storage),
-		    mnesia_checkpoint:tm_del_copy(Tab, node())
+                mnesia_checkpoint:tm_del_copy(Tab, node()),
+                %% Subscriptions to Tab are removed, but the gvar still exists
+                ?eval_debug_fun({?MODULE, delete_table, post_unsubscribe},
+                                [{tab, Tab}])
 	    end
     end,
     delete_cstruct(Tid, Cs, InPlace, InitBy);

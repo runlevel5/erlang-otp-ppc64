@@ -67,7 +67,16 @@ ZSTD_CFLAGS += -MMD -MP
 # Set VISIBLE's to empty to NOT export any symbols for dynamic linking
 ZSTD_CFLAGS += -DZSTDLIB_VISIBLE= -DZSTDERRORLIB_VISIBLE=
 
+ifeq ($(TARGET)-$(ARCH), win32-arm64)
+ZSTD_CFLAGS += -DNO_PREFETCH
+endif
+
 ifeq ($(TARGET), win32)
+# cc.sh defines __aarch64__ for our own architecture tests, but we compile
+# with MSVC. zstd reads the macro as a GNU assembler and emits __asm__
+# prefetch instructions that cl.exe cannot parse.
+ZSTD_CFLAGS += -DNO_PREFETCH
+
 $(ZSTD_LIBRARY): $(ZSTD_OBJS)
 	$(V_AR) -out:$@ $(ZSTD_OBJS)
 else

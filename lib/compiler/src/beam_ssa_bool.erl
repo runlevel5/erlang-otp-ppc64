@@ -125,14 +125,14 @@
 
 -include("beam_ssa.hrl").
 
--record(st, {defs=#{},
-             ldefs=#{},
-             count :: beam_ssa:label(),
-             dom,
-             uses,
-             preds=#{} :: #{beam_ssa:label() => [beam_ssa:label()]} |
+-record #st{defs=#{},
+            ldefs=#{},
+            count :: beam_ssa:label(),
+            dom,
+            uses,
+            preds=#{} :: #{beam_ssa:label() => [beam_ssa:label()]} |
                           {'ssa',beam_ssa:block_map()},
-             in_or=false :: boolean()}).
+            in_or=false :: boolean()}.
 
 -spec module(beam_ssa:b_module(), [compile:option()]) ->
                     {'ok',beam_ssa:b_module()}.

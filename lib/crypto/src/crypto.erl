@@ -49,7 +49,9 @@ This module provides a set of cryptographic functions.
 
   - **POLY1305** - [ChaCha20 and Poly1305 for IETF Protocols (RFC 7539)](http://www.ietf.org/rfc/rfc7539.txt)
 
-- **Symmetric Ciphers** - 
+  - **SipHash** - [SipHash: a fast short-input PRF](https://ia.cr/2012/351)
+
+- **Symmetric Ciphers** -
 
   - **DES, 3DES and AES** - [Block Cipher Techniques (NIST)](https://csrc.nist.gov/projects/block-cipher-techniques)
 
@@ -81,6 +83,18 @@ This module provides a set of cryptographic functions.
   - **ECDSA** - [Elliptic Curve Digital Signature Algorithm (ECDSA)](http://csrc.nist.gov/groups/STM/cavp/documents/dss2/ecdsa2vs.pdf)
 
   - **SRP** - [The SRP Authentication and Key Exchange System (RFC 2945)](http://www.ietf.org/rfc/rfc2945.txt)
+
+- **KDFs - Key Derivation Functions** -
+
+  - **Argon2i**, **Argon2d**, and **Argon2id** - [Argon2 Memory-Hard Function for Password Hashing and Proof-of-Work Applications (RFC 9106)](https://www.rfc-editor.org/rfc/rfc9106)
+
+  - **HKDF** - [HMAC-based Extract-and-Expand Key Derivation Function (RFC 5869)](https://www.rfc-editor.org/rfc/rfc5869)
+
+  - **SSKDF** - [Single-Step Key Derivation Function (NIST SP 800-56C)](https://doi.org/10.6028/NIST.SP.800-56Cr2)
+
+  - **PBKDF2** - [Password-Based Key Derivation Function 2 (RFC 8018)](https://www.rfc-editor.org/rfc/rfc8018)
+
+  - **Scrypt** - [The scrypt Password-Based Key Derivation Function (RFC 7914)](https://www.rfc-editor.org/rfc/rfc7914)
 
 > #### Note {: .info }
 >
@@ -175,6 +189,7 @@ end
 -export([rand_seed/1]).
 -export([format_error/2]).
 -export([pbkdf2_hmac/5]).
+-export([kdf/4]).
 
 %%%----------------------------------------------------------------
 %% Deprecated functions
@@ -286,6 +301,7 @@ end
        ng_crypto_get_data_nif/1, ng_crypto_one_time_nif/5,
        strong_rand_bytes_nif/1, strong_rand_range_nif/1, rand_uniform_nif/2,
        mod_exp_nif/4, do_exor/2, hash_equals_nif/2, pbkdf2_hmac_nif/5,
+       kdf_nif/4, kdf_algorithms/0,
        pkey_sign_nif/5, pkey_verify_nif/6, pkey_crypt_nif/6,
        pkey_sign_heavy_nif/5,
        encapsulate_key_nif/2, decapsulate_key_nif/3,
@@ -317,12 +333,20 @@ end
                sha3/0,
                mldsa/0,
                slh_dsa/0,
-               kem/0
+               kem/0,
+               kdf/0,
+               argon2_opts/0,
+               sskdf_opts/0,
+               hkdf_opts/0,
+               scrypt_opts/0,
+               pbkdf2_opts/0,
+               kdf_opts/0
              ]).
 
 -export_type([
               hmac_hash_algorithm/0,
-              cmac_cipher_algorithm/0
+              cmac_cipher_algorithm/0,
+              siphash_options/0
              ]).
 
 -export_type([engine_ref/0,
@@ -362,6 +386,54 @@ end
 -doc "Key encapsulation mechanisms.".
 -doc(#{group => <<"Key Encapsulation Mechanism">>}).
 -type kem() :: mlkem512 | mlkem768 | mlkem1024.
+
+-doc "Key derivation functions.".
+-doc(#{group => <<"KDF API">>}).
+-type kdf() :: argon2d | argon2i | argon2id | sskdf | hkdf | pbkdf2 | scrypt.
+
+-doc "Options for the Argon2 (`argon2id`, `argon2i`, `argon2d`) functions, see `kdf/4`.".
+-doc(#{group => <<"KDF API">>}).
+-type argon2_opts() :: #{salt := binary(),
+                         memory := pos_integer(),
+                         iterations := pos_integer(),
+                         parallelism := pos_integer(),
+                         secret => binary(),
+                         ad => binary()}.
+
+-doc "Options for the single-step (`sskdf`) key derivation function, see `kdf/4`.".
+-doc(#{group => <<"KDF API">>}).
+-type sskdf_opts() :: #{digest := hmac_hash_algorithm(),
+                        info => binary()}
+                    | #{digest := hmac_hash_algorithm(),
+                        mac := hmac,
+                        salt => binary(),
+                        info => binary()}.
+
+-doc "Options for the `hkdf` key derivation function, see `kdf/4`.".
+-doc(#{group => <<"KDF API">>}).
+-type hkdf_opts() :: #{digest := hmac_hash_algorithm(),
+                       salt => binary(),
+                       info => binary(),
+                       mode => extract_and_expand | extract_only | expand_only}.
+
+-doc "Options for the `scrypt` key derivation function, see `kdf/4`.".
+-doc(#{group => <<"KDF API">>}).
+-type scrypt_opts() :: #{salt := binary(),
+                         n := pos_integer(),
+                         r := pos_integer(),
+                         p := pos_integer(),
+                         maxmem => pos_integer()}.
+
+-doc "Options for the `pbkdf2` key derivation function, see `kdf/4`.".
+-doc(#{group => <<"KDF API">>}).
+-type pbkdf2_opts() :: #{digest := sha1() | sha2(),
+                         salt := binary(),
+                         iterations := pos_integer()}.
+
+-doc "Options for `kdf/4`, determined by the chosen `t:kdf/0`.".
+-doc(#{group => <<"KDF API">>}).
+-type kdf_opts() :: argon2_opts() | sskdf_opts() | hkdf_opts()
+                  | scrypt_opts() | pbkdf2_opts().
 
 %%% Keys
 -doc(#{group => <<"Public/Private Keys">>,equiv => rsa_params()}).
@@ -832,12 +904,14 @@ stop() ->
                                       | {public_keys, PKs}
                                       | {macs,    Macs}
                                       | {curves,  Curves}
-                                      | {rsa_opts, RSAopts},
+                                      | {rsa_opts, RSAopts}
+                                      | {kdfs, KDFs},
                              Hashs :: [sha1() | sha2() | sha3() | sha3_xof() | blake2() | ripemd160 | sm3 | compatibility_only_hash()],
                              Ciphers :: [cipher()],
                              KEMs :: [kem()],
+                             KDFs :: [kdf()],
                              PKs :: [rsa | dss | ecdsa | dh | ecdh | eddh | ec_gf2m | mldsa() | slh_dsa()],
-                             Macs :: [hmac | cmac | poly1305],
+                             Macs :: [hmac | cmac | poly1305 | siphash],
                              Curves :: [ec_named_curve() | edwards_curve_dh() | edwards_curve_ed()],
                              RSAopts :: [rsa_sign_verify_opt() | rsa_opt()] .
 supports() ->
@@ -847,7 +921,8 @@ supports() ->
       | [{T,supports(T)} || T <- [public_keys,
                                   macs,
                                   curves,
-                                  rsa_opts]
+                                  rsa_opts,
+                                  kdfs]
         ]
      ].
 
@@ -867,19 +942,22 @@ algorithms.
                                    | public_keys
                                    | macs
                                    | curves
-                                   | rsa_opts,
+                                   | rsa_opts
+                                   | kdfs,
 			     Support :: Hashs
                                       | Ciphers
                                       | KEMs
                                       | PKs
                                       | Macs
                                       | Curves
-                                      | RSAopts,
+                                      | RSAopts
+                                      | KDFs,
                              Hashs :: [sha1() | sha2() | sha3() | sha3_xof() | blake2() | ripemd160 | compatibility_only_hash()],
                              Ciphers :: [cipher()],
                              KEMs :: [kem()],
+                             KDFs :: [kdf()],
                              PKs :: [rsa | dss | ecdsa | dh | ecdh | eddh | ec_gf2m],
-                             Macs :: [hmac | cmac | poly1305],
+                             Macs :: [hmac | cmac | poly1305 | siphash],
                              Curves :: [ec_named_curve() | edwards_curve_dh() | edwards_curve_ed()],
                              RSAopts :: [rsa_sign_verify_opt() | rsa_opt()] .
 
@@ -892,7 +970,8 @@ supports(ciphers)     -> add_cipher_aliases(cipher_algorithms());
 supports(kems)        -> kem_algorithms_nif();
 supports(macs)        -> mac_algorithms();
 supports(curves)      -> curve_algorithms();
-supports(rsa_opts)    -> rsa_opts_algorithms().
+supports(rsa_opts)    -> rsa_opts_algorithms();
+supports(kdfs)        -> kdf_algorithms().
 
 -doc(#{group => <<"Utility Functions">>}).
 -doc """
@@ -1009,6 +1088,13 @@ HMAC.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 
+See also `kdf/4`, which supports more key derivation functions.
+
+> #### Note {: .info }
+>
+> This function is deliberately expensive and can delay other work in the
+> system. Since this functionality is typically network-facing (for example,
+> password logins), limit the number of concurrent invocations.
 
 ## Examples
 
@@ -1017,7 +1103,7 @@ Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 <<18,15,182,207,252,248,179,44,67,231,34,82,86,196,248,55>>
 ```
 """.
--doc(#{group => <<"Engine API">>,since => <<"OTP 24.2">>}).
+-doc(#{group => <<"KDF API">>,since => <<"OTP 24.2">>}).
 -spec pbkdf2_hmac(Digest, Pass, Salt, Iter, KeyLen) -> Result
           when Digest :: sha | sha224 | sha256 | sha384 | sha512 | sha512_224 | sha512_256,
                Pass :: binary(),
@@ -1029,6 +1115,104 @@ pbkdf2_hmac(Digest, Pass, Salt, Iter, KeyLen) ->
     ?nif_call(pbkdf2_hmac_nif(Digest, Pass, Salt, Iter, KeyLen)).
 
 pbkdf2_hmac_nif(_, _, _, _, _) -> ?nif_stub.
+
+-doc """
+Derive a key of `KeyLen` bytes from the input keying material `KeyMaterial`
+using the key derivation function `Type`.
+
+`KeyMaterial` is the secret input of the KDF: the password for the
+password-based functions (`argon2*`, `scrypt`, `pbkdf2`), the input
+keying material (or pseudorandom key in `expand_only` mode) for `hkdf`,
+and the shared secret for `sskdf`.
+
+Requires OpenSSL 3.0 or later; the argon2 functions require OpenSSL 3.2 or
+later. Use [`supports(kdfs)`](`supports/1`) to check availability at runtime.
+
+Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling; an
+unavailable KDF raises a `notsup` exception.
+
+The options for each `Type` are:
+
+- **`argon2id`, `argon2i`, `argon2d`** - The Argon2 password hashing
+  functions of [RFC 9106](https://www.rfc-editor.org/rfc/rfc9106).
+  `argon2id` is the recommended variant.
+
+  Required: `salt` (a binary), `memory` (memory cost in KiB),
+  `iterations` (passes), `parallelism` (lanes) (positive integers).
+  Optional: `secret` (key/pepper), `ad` (associated data) (binaries).
+
+  RFC 9106 recommends `memory => 2097152, iterations => 1, parallelism => 4`
+  (2 GiB) as its first choice. For memory-constrained environments, its second
+  recommendation is `memory => 65536, iterations => 3, parallelism => 4`
+  (64 MiB).
+
+- **`hkdf`** - HMAC-based extract-and-expand key derivation of
+  [RFC 5869](https://www.rfc-editor.org/rfc/rfc5869).
+
+  Required: `digest` (a hash algorithm atom, for example `sha256`).
+  Optional: `salt`, `info` (binaries) and `mode`
+  (`extract_and_expand` (default), `extract_only` or `expand_only`).
+  With `extract_only`, `KeyLen` must equal the digest output size.
+
+- **`sskdf`** - The single-step (Concatenation) key derivation function of
+  [NIST SP 800-56C](https://doi.org/10.6028/NIST.SP.800-56Cr2).
+  `KeyMaterial` is the shared secret.
+
+  Required: `digest` (a hash algorithm atom, for example `sha256`).
+  Optional: `info` (the `FixedInfo`/`OtherInfo` binary) and `mac`, which
+  selects the auxiliary function. By default the digest is used directly as a
+  hash; with `mac => hmac` the auxiliary function is HMAC keyed by `salt`
+  (an optional binary), using `digest` as the underlying hash.
+
+- **`scrypt`** - The scrypt password-based key derivation function of
+  [RFC 7914](https://www.rfc-editor.org/rfc/rfc7914).
+
+  Required: `salt` (a binary), `n` (CPU/memory cost, a power
+  of two), `r` (block size), `p` (parallelization) (positive integers).
+  Optional: `maxmem` (memory limit in bytes; the cryptolib default is
+  `1074790400`, that is 1025 MiB).
+
+- **`pbkdf2`** - PKCS #5 password-based key derivation function 2 of
+  [RFC 8018](https://www.rfc-editor.org/rfc/rfc8018).
+
+  Required: `digest`, `salt`, `iterations`.
+  See also `pbkdf2_hmac/5`, which also works with cryptolibs older
+  than OpenSSL 3.0.
+
+> #### Note {: .info }
+>
+> The password-hashing functions (`argon2*`, `scrypt`, `pbkdf2`) are
+> deliberately expensive and can delay other work in the system. Since this
+> functionality is typically network-facing (for example, password logins),
+> limit the number of concurrent invocations. The `hkdf` and `sskdf`
+> functions are inexpensive and are not affected.
+
+## Examples
+
+In production derive a fresh random `salt` per password with
+[`strong_rand_bytes/1`](`strong_rand_bytes/1`) and store it with the key:
+
+```erlang
+1> Key = crypto:kdf(scrypt, <<"pleaseletmein">>, 64,
+                    #{salt => <<"SodiumChloride">>, n => 16384, r => 8, p => 1}),
+   binary:encode_hex(Key, lowercase).
+<<"7023bdcb3afd7348461c06cd81fd38eb"
+  "fda8fbba904f8e3ea9b543f6545da1f2"
+  "d5432955613f0fcf62d49705242a9af9"
+  "e61e85dc0d651e40dfcf017b45575887">>
+```
+""".
+-doc(#{group => <<"KDF API">>,
+       since => <<"OTP 30.0">>}).
+-spec kdf(Type, KeyMaterial, KeyLen, Options) -> binary()
+              when Type        :: kdf(),
+                   KeyMaterial :: binary(),
+                   KeyLen      :: pos_integer(),
+                   Options     :: kdf_opts().
+kdf(Type, KeyMaterial, KeyLen, Options) ->
+    ?nif_call(kdf_nif(Type, KeyMaterial, KeyLen, Options)).
+
+kdf_nif(_, _, _, _) -> ?nif_stub.
 
 %%%================================================================
 %%%
@@ -1231,24 +1415,50 @@ hash_final_xof(State, Length) ->
                                | rc2_cbc
                                  .
 
+-doc """
+Options controlling the `siphash` MAC, used as the `SubType` argument.
+
+- `size` - output size in bytes, either `8` or `16`. Defaults to `16`.
+- `c_rounds` - number of SipHash compression rounds, in the range `1..16`.
+  Defaults to `2`.
+- `d_rounds` - number of SipHash finalization rounds, in the range `1..16`.
+  Defaults to `4`.
+
+The defaults correspond to SipHash-2-4 with a 16 byte output. An empty map
+`#{}` (or `undefined`) selects all defaults; any subset of the keys may be
+given to override individual parameters. The round counts are capped (well
+above the strongest standard variant, SipHash-4-8) so that a single call
+cannot monopolise a scheduler.
+""".
+-doc(#{group => <<"MAC API">>}).
+-type siphash_options() :: #{size => 8 | 16,
+                             c_rounds => 1..16,
+                             d_rounds => 1..16}.
+
 %%%----------------------------------------------------------------
 %%% Calculate MAC for the whole text at once
 
 -doc """
-Compute a `poly1305` MAC (Message Authentication Code).
+Compute a `poly1305` or `siphash` MAC (Message Authentication Code).
 
-Same as [`mac(Type, undefined, Key, Data)`](`mac/4`).
+For `poly1305` this is the same as [`mac(poly1305, undefined, Key, Data)`](`mac/4`).
+For `siphash` this is the same as [`mac(siphash, #{}, Key, Data)`](`mac/4`), i.e.
+SipHash-2-4 with a 16 byte output; use [`mac/4`](`mac/4`) with a
+[`t:siphash_options/0`](`t:siphash_options/0`) map to configure the rounds or
+output size.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 """.
 -doc(#{group => <<"MAC API">>,
        since => <<"OTP 22.1">>}).
--spec mac(Type :: poly1305, Key, Data) -> Mac
-                     when Key :: iodata(),
+-spec mac(Type, Key, Data) -> Mac
+                     when Type :: poly1305 | siphash,
+                          Key :: iodata(),
                           Data :: iodata(),
                           Mac :: binary().
 
-mac(poly1305, Key, Data) -> mac(poly1305, undefined, Key, Data).
+mac(poly1305, Key, Data) -> mac(poly1305, undefined, Key, Data);
+mac(siphash, Key, Data) -> mac(siphash, #{}, Key, Data).
 
 
 -doc """
@@ -1265,10 +1475,15 @@ Argument `Type` is the type of MAC and `Data` is the full message.
 - For `poly1305` it should be set to `undefined` or the [mac/2](`mac_init/2`)
   function could be used instead, see
   [Algorithm Details](algorithm_details.md#poly1305) in the User's Guide.
+- For `siphash` it is a [`t:siphash_options/0`](`t:siphash_options/0`) map (or
+  `undefined` / `#{}` for the defaults), selecting the output size and the
+  number of rounds, see [Algorithm Details](algorithm_details.md#siphash) in the
+  User's Guide.
 
 `Key` is the authentication key with a length according to the `Type` and
 `SubType`. The key length could be found with the `hash_info/1` (`hmac`) for and
 `cipher_info/1` (`cmac`) functions. For `poly1305` the key length is 32 bytes.
+For `siphash` the key length is 16 bytes.
 Note that the cryptographic quality of the key is not checked.
 
 The `Mac` result will have a default length depending on the `Type` and
@@ -1291,8 +1506,8 @@ Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 -doc(#{group => <<"MAC API">>,
        since => <<"OTP 22.1">>}).
 -spec mac(Type, SubType, Key, Data) -> Mac
-                     when Type :: hmac | cmac | poly1305,
-                          SubType :: hmac_hash_algorithm() | cmac_cipher_algorithm() | undefined,
+                     when Type :: hmac | cmac | poly1305 | siphash,
+                          SubType :: hmac_hash_algorithm() | cmac_cipher_algorithm() | siphash_options() | undefined,
                           Key :: iodata(),
                           Data :: iodata(),
                           Mac :: binary().
@@ -1303,16 +1518,21 @@ mac(Type, SubType, Key0, Data) ->
 
 
 -doc """
-Compute a `poly1305` MAC (Message Authentication Code) with a limited length.
+Compute a `poly1305` or `siphash` MAC (Message Authentication Code) with a
+limited length.
 
-Same as [`macN(Type, undefined, Key, Data, MacLength)`](`macN/5`).
+This is the same as [`macN(Type, undefined, Key, Data, MacLength)`](`macN/5`),
+i.e. the default `SubType` (for `siphash`, SipHash-2-4 with a 16 byte output
+before truncation). Use [`macN/5`](`macN/5`) with a
+[`t:siphash_options/0`](`t:siphash_options/0`) map to configure `siphash`.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 """.
 -doc(#{group => <<"MAC API">>,
        since => <<"OTP 22.1">>}).
--spec macN(Type :: poly1305, Key, Data, MacLength) -> Mac
-                     when Key :: iodata(),
+-spec macN(Type, Key, Data, MacLength) -> Mac
+                     when Type :: poly1305 | siphash,
+                          Key :: iodata(),
                           Data :: iodata(),
                           Mac :: binary(),
                           MacLength :: pos_integer().
@@ -1344,8 +1564,8 @@ the User's Guide.
 -doc(#{group => <<"MAC API">>,
        since => <<"OTP 22.1">>}).
 -spec macN(Type, SubType, Key, Data, MacLength) -> Mac
-                     when Type :: hmac | cmac | poly1305,
-                          SubType :: hmac_hash_algorithm() | cmac_cipher_algorithm() | undefined,
+                     when Type :: hmac | cmac | poly1305 | siphash,
+                          SubType :: hmac_hash_algorithm() | cmac_cipher_algorithm() | siphash_options() | undefined,
                           Key :: iodata(),
                           Data :: iodata(),
                           Mac :: binary(),
@@ -1367,19 +1587,25 @@ between function calls.
 -opaque mac_state() :: reference() .
 
 -doc """
-Initialize a state for streaming `poly1305` MAC calculation.
+Initialize a state for streaming `poly1305` or `siphash` MAC calculation.
 
-Same as [`mac_init(Type, undefined, Key)`](`mac_init/3`).
+For `poly1305` this is the same as [`mac_init(poly1305, undefined, Key)`](`mac_init/3`).
+For `siphash` this is the same as [`mac_init(siphash, #{}, Key)`](`mac_init/3`),
+i.e. SipHash-2-4 with a 16 byte output; use [`mac_init/3`](`mac_init/3`) with a
+[`t:siphash_options/0`](`t:siphash_options/0`) map to configure it.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 """.
 -doc(#{group => <<"MAC API">>,
        since => <<"OTP 22.1">>}).
--spec mac_init(Type :: poly1305, Key) -> State
-                          when Key :: iodata(),
+-spec mac_init(Type, Key) -> State
+                          when Type :: poly1305 | siphash,
+                               Key :: iodata(),
                                State :: mac_state() .
 mac_init(poly1305, Key) ->
-    ?nif_call(mac_init_nif(poly1305, undefined, Key)).
+    ?nif_call(mac_init_nif(poly1305, undefined, Key));
+mac_init(siphash, Key) ->
+    ?nif_call(mac_init_nif(siphash, #{}, Key)).
 
 
 -doc """
@@ -1396,10 +1622,15 @@ Initialize the state for streaming MAC calculation.
 - For `poly1305` it should be set to `undefined` or the [mac/2](`mac_init/2`)
   function could be used instead, see
   [Algorithm Details](algorithm_details.md#poly1305) in the User's Guide.
+- For `siphash` it is a [`t:siphash_options/0`](`t:siphash_options/0`) map (or
+  `undefined` / `#{}` for the defaults), selecting the output size and the
+  number of rounds, see [Algorithm Details](algorithm_details.md#siphash) in the
+  User's Guide.
 
 `Key` is the authentication key with a length according to the `Type` and
 `SubType`. The key length could be found with the `hash_info/1` (`hmac`) for and
 `cipher_info/1` (`cmac`) functions. For `poly1305` the key length is 32 bytes.
+For `siphash` the key length is 16 bytes.
 Note that the cryptographic quality of the key is not checked.
 
 The returned `State` should be used in one or more subsequent calls to
@@ -1424,8 +1655,8 @@ See
 -doc(#{group => <<"MAC API">>,
        since => <<"OTP 22.1">>}).
 -spec mac_init(Type, SubType, Key) -> State
-                          when Type :: hmac | cmac | poly1305,
-                               SubType :: hmac_hash_algorithm() | cmac_cipher_algorithm() | undefined,
+                          when Type :: hmac | cmac | poly1305 | siphash,
+                               SubType :: hmac_hash_algorithm() | cmac_cipher_algorithm() | siphash_options() | undefined,
                                Key :: iodata(),
                                State :: mac_state() .
 mac_init(Type, SubType, Key0) ->
@@ -3180,6 +3411,8 @@ jump_iv(<<X, Rest/binary>>, JumpIV) ->
 -type pk_sign_verify_algs() :: rsa | dss | ecdsa | eddsa | mldsa() | slh_dsa().
 -type mldsa() :: mldsa44 | mldsa65 | mldsa87.
 -type mldsa_private() :: {seed | expandedkey, binary()}.
+-type mldsa_expanded_key() :: binary().
+-type mldsa_keygen_private() :: mldsa_expanded_key() | {seed, binary()}.
 -type mldsa_public() :: binary().
 -type slh_dsa() :: slh_dsa_shake_128s | slh_dsa_shake_128f | slh_dsa_sha2_128s | slh_dsa_sha2_128f
                  | slh_dsa_shake_192s | slh_dsa_shake_192f | slh_dsa_sha2_192s | slh_dsa_sha2_192f
@@ -3187,15 +3420,47 @@ jump_iv(<<X, Rest/binary>>, JumpIV) ->
 -type slh_dsa_private() :: binary().
 -type slh_dsa_public() :: binary().
 
--doc(#{group => <<"Public Key Sign and Verify">>,
-       equiv => rsa_sign_verify_padding()}).
--type pk_sign_verify_opts() :: [ rsa_sign_verify_opt() ] .
+-doc """
+Options for `sign/5` and `verify/6`.
+
+Which options are accepted depends on `Algorithm`:
+
+- `rsa` - see `t:rsa_sign_verify_opt/0`.
+- [ML-DSA](`t:mldsa/0`) and [SLH-DSA](`t:slh_dsa/0`) - see
+  `t:pqc_sign_verify_opt/0`.
+
+Passing a non-empty option list for any other algorithm raises a `badarg`
+exception.
+""".
+-doc(#{group => <<"Public Key Sign and Verify">>}).
+-type pk_sign_verify_opts() :: [rsa_sign_verify_opt()
+                               | pqc_sign_verify_opt()].
 
 -doc(#{group => <<"Public Key Sign and Verify">>,
        equiv => rsa_sign_verify_padding()}).
 -type rsa_sign_verify_opt() :: {rsa_padding, rsa_sign_verify_padding()}
                              | {rsa_pss_saltlen, integer()}
                              | {rsa_mgf1_md, sha2()}.
+
+-doc """
+Options for ML-DSA (`t:mldsa/0`) and SLH-DSA (`t:slh_dsa/0`) sign and verify.
+
+- **`{context_string, Context}`** - The context string `ctx` defined in
+  [FIPS 204](https://csrc.nist.gov/pubs/fips/204/final) (ML-DSA) and
+  [FIPS 205](https://csrc.nist.gov/pubs/fips/205/final) (SLH-DSA). It binds
+  the signature to an application-specific domain, so a signature created
+  with one context does not verify with another.
+
+  `Context` must be a binary of at most 255 bytes, otherwise a `badarg`
+  exception is raised. The same `Context` must be given to `verify/6` as was
+  given to `sign/5`. An empty binary is equivalent to not giving the option.
+
+  The context is used by the "pure" signature variants, see `sign/5`.
+
+*Since OTP @OTP-20368@*.
+""".
+-doc(#{group => <<"Public Key Sign and Verify">>}).
+-type pqc_sign_verify_opt() :: {context_string, binary()}.
 
 -doc """
 Options for sign and verify.
@@ -3247,6 +3512,14 @@ The msg is either the binary "cleartext" data to be signed or it is the hashed
 value of "cleartext" i.e. the digest (plaintext).
 
 Algorithm `dss` can only be used together with digest type `sha`.
+
+ML-DSA (`t:mldsa/0`) and SLH-DSA (`t:slh_dsa/0`) signatures are created with
+the "pure" variants of [FIPS 204](https://csrc.nist.gov/pubs/fips/204/final)
+and [FIPS 205](https://csrc.nist.gov/pubs/fips/205/final), not with the
+pre-hash variants HashML-DSA and HashSLH-DSA. Use digest type `none` for these
+algorithms. With any other digest type the message is first hashed and the
+digest is then signed with the pure variant, which does not interoperate with
+HashML-DSA or HashSLH-DSA.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 
@@ -3349,6 +3622,8 @@ The msg is either the binary "cleartext" data to be signed or it is the hashed
 value of "cleartext" i.e. the digest (plaintext).
 
 Algorithm `dss` can only be used together with digest type `sha`.
+
+For ML-DSA and SLH-DSA, see `sign/5` about pure and pre-hash variants.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 
@@ -3612,8 +3887,8 @@ pkey_crypt_nif(_Algorithm, _In, _Key, _Options, _IsPrivate, _IsEncrypt) -> ?nif_
 -spec generate_key(Type, Params)
                  -> {PublicKey, PrivKeyOut}
                         when Type :: dh | ecdh | eddh | eddsa | rsa | mldsa() | mlkem512 | mlkem768 | mlkem1024 | slh_dsa() | srp,
-                             PublicKey :: dh_public() | ecdh_public() | rsa_public() | srp_public(),
-                             PrivKeyOut :: dh_private() | ecdh_private() | rsa_private() | {srp_public(),srp_private()},
+                             PublicKey :: dh_public() | ecdh_public() | rsa_public() | mldsa_public() | srp_public(),
+                             PrivKeyOut :: dh_private() | ecdh_private() | rsa_private() | mldsa_expanded_key() | {srp_public(),srp_private()},
                              Params :: dh_params() | ecdh_params() | eddsa_params() | rsa_params() | srp_gen_params() | [].
 generate_key(Type, Params) ->
     generate_key(Type, Params, undefined).
@@ -3655,9 +3930,9 @@ Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 -spec generate_key(Type, Params, PrivKeyIn)
                  -> {PublicKey, PrivKeyOut}
                         when Type :: dh | ecdh | eddh | eddsa | rsa | mldsa() | mlkem512 | mlkem768 | mlkem1024 | srp | slh_dsa(),
-                             PublicKey :: dh_public() | ecdh_public() | rsa_public() | srp_public(),
-                             PrivKeyIn :: undefined | dh_private() | ecdh_private() | rsa_private() | {srp_public(),srp_private()},
-                             PrivKeyOut :: dh_private() | ecdh_private() | rsa_private() | {srp_public(),srp_private()},
+                             PublicKey :: dh_public() | ecdh_public() | rsa_public() | mldsa_public() | srp_public(),
+                             PrivKeyIn :: undefined | dh_private() | ecdh_private() | rsa_private() | mldsa_keygen_private() | {srp_public(),srp_private()},
+                             PrivKeyOut :: dh_private() | ecdh_private() | rsa_private() | mldsa_expanded_key() | {srp_public(),srp_private()},
                              Params :: dh_params() | ecdh_params() | eddsa_params() | rsa_params() | srp_comp_params() | []
                                        .
 
@@ -4791,18 +5066,14 @@ hash_algorithms() -> ?nif_stub.
 pubkey_algorithms() -> ?nif_stub.
 cipher_algorithms() -> ?nif_stub.
 kem_algorithms_nif() -> ?nif_stub.
+kdf_algorithms() -> ?nif_stub.
 mac_algorithms() -> ?nif_stub.
 curve_algorithms() -> ?nif_stub.
 rsa_opts_algorithms() -> ?nif_stub.
 
 
 int_to_bin(X) when X < 0 -> int_to_bin_neg(X, []);
-int_to_bin(X) -> int_to_bin_pos(X, []).
-
-int_to_bin_pos(0,Ds=[_|_]) ->
-    list_to_binary(Ds);
-int_to_bin_pos(X,Ds) ->
-    int_to_bin_pos(X bsr 8, [(X band 255)|Ds]).
+int_to_bin(X) -> binary:encode_unsigned(X).
 
 int_to_bin_neg(-1, Ds=[MSB|_]) when MSB >= 16#80 ->
     list_to_binary(Ds);
@@ -4887,7 +5158,7 @@ mpint_neg(X) ->
     <<?UINT32(Sz), Bin/binary>>.
 
 mpint_pos(X) ->
-    Bin = int_to_bin_pos(X, []),
+    Bin = binary:encode_unsigned(X),
     <<MSB,_/binary>> = Bin,
     Sz = byte_size(Bin),
     if MSB band 16#80 == 16#80 ->

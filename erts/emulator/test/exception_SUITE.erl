@@ -404,42 +404,46 @@ nested_stacktrace_1({X1,C1,V1}, {X2,C2,V2}) ->
 
 
 raise(Conf) when is_list(Conf) ->
-    erase(raise),
-    A =
-        try
-            try foo({'div',{1,0}})
-            catch
-                error:badarith:A0 ->
-                    put(raise, A0),
-                    erlang:raise(error, badarith, A0)
-            end
-        catch
-            error:badarith:A1 ->
-                A1 = get(raise)
-        end,
-    A = get(raise),
-    [{erlang,'div',[1, 0], _},{?MODULE,my_div,2,_}|_] = A,
-    %%
     N = 8, % Must be even
-    N = erlang:system_flag(backtrace_depth, N),
+    OldDepth = erlang:system_flag(backtrace_depth, N),
     try
-        even(N)
-    catch
-        error:function_clause -> ok
-    end,
-    %%
-    C = odd_even(N+1, []),
-    try
-        odd(N+1)
-    catch
-        error:function_clause -> ok
-    end,
-    try
-        erlang:raise(error, function_clause, C)
-    catch
-        error:function_clause -> ok
-    end,
-    ok.
+        erase(raise),
+        A =
+            try
+                try foo({'div',{1,0}})
+                catch
+                    error:badarith:A0 ->
+                        put(raise, A0),
+                        erlang:raise(error, badarith, A0)
+                end
+            catch
+                error:badarith:A1 ->
+                    A1 = get(raise)
+            end,
+        A = get(raise),
+        [{erlang,'div',[1, 0], _},{?MODULE,my_div,2,_}|_] = A,
+        %%
+        try
+            even(N)
+        catch
+            error:function_clause -> ok
+        end,
+        %%
+        C = odd_even(N+1, []),
+        try
+            odd(N+1)
+        catch
+            error:function_clause -> ok
+        end,
+        try
+            erlang:raise(error, function_clause, C)
+        catch
+            error:function_clause -> ok
+        end,
+        ok
+    after
+        erlang:system_flag(backtrace_depth, OldDepth)
+    end.
 
 odd_even(N, R) when is_integer(N), N > 1 ->
     odd_even(N-1, 
@@ -931,11 +935,15 @@ error_info(_Config) ->
          {hibernate, [1,2,a]},
          {insert_element, [a, b, c]},
          {insert_element, [0, b, c]},
+         {integer_set_bits, [abc]},
+         {integer_signed_width, [abc]},
          {integer_to_binary, [42.0]},
          {integer_to_binary, [42, 100]},
          {integer_to_binary, [42.0, 100]},
          {integer_to_list, [abc]},
          {integer_to_list, [abc, 100]},
+         {integer_trailing_zeroes, [abc]},
+         {integer_unsigned_width, [abc]},
          {iolist_size, [abc]},
          {iolist_to_binary, [abc]},
          {iolist_to_iovec, [abc]},
@@ -1069,6 +1077,7 @@ error_info(_Config) ->
          {phash, [any, not_integer]},
          {phash2, [any], [no_fail]},
          {phash2, [any, not_integer]},
+         {pid_to_binary, [abc]},
          {pid_to_list, [abc]},
 
          {open_port, [{bad,name}, []]},
@@ -1111,6 +1120,7 @@ error_info(_Config) ->
          {port_get_data, 1},
          {port_set_data, 2},
 
+         {port_to_binary, [abc]},
          {port_to_list, [abc]},
          {posixtime_to_universaltime, [abc]},
 
@@ -1153,6 +1163,7 @@ error_info(_Config) ->
          {raise, 3},
          {read_timer, [bad_timer]},
          {read_timer, [bad_time, bad_options]},
+         {ref_to_binary, [abc]},
          {ref_to_list, [abc]},
 
          {register, [<<"name">>, abc]},
