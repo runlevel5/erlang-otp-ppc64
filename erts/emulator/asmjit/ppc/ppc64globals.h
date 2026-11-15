@@ -162,11 +162,13 @@ namespace Inst {
     kIdMcrf,                             //!< Instruction 'mcrf'.
     kIdMcrxrx,                           //!< Instruction 'mcrxrx'.
     kIdMfcr,                             //!< Instruction 'mfcr'.
+    kIdMffprd,                           //!< Instruction 'mffprd'.
     kIdMfspr,                            //!< Instruction 'mfspr'.
     kIdModsd,                            //!< Instruction 'modsd'.
     kIdModsw,                            //!< Instruction 'modsw'.
     kIdModud,                            //!< Instruction 'modud'.
     kIdModuw,                            //!< Instruction 'moduw'.
+    kIdMtfprd,                           //!< Instruction 'mtfprd'.
     kIdMtspr,                            //!< Instruction 'mtspr'.
     kIdMulhd,                            //!< Instruction 'mulhd'.
     kIdMulhd_rc,                         //!< Instruction 'mulhd.'.

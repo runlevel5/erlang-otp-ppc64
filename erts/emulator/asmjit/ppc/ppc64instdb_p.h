@@ -107,7 +107,11 @@ enum EncodingId : uint32_t {
   //! `inst FRT, FRB` - floating point registers.
   kEncodingFtFb,
   //! `inst BF, FRA, FRB` - floating point compare, BF is a condition register field.
-  kEncodingBfFaFb
+  kEncodingBfFaFb,
+  //! `inst FRT, RA` - moves a general purpose register to a floating point register.
+  kEncodingFtRa,
+  //! `inst RA, FRS` - moves a floating point register to a general purpose register.
+  kEncodingRaFs
 };
 
 #ifndef ASMJIT_NO_TEXT
