@@ -655,12 +655,10 @@ protected:
 
     /* Converts the signed integer in `src` to a double.
      *
-     * The value has to go through memory, as there is no instruction that
-     * moves a general purpose register to a floating point register on all
-     * the processors we support. Clobbers TMP_MEM5q. */
+     * The move between the general purpose and the floating point register
+     * was introduced in Power ISA 2.07, which the JIT requires. */
     void emit_int_to_double(ppc::Vec dst, ppc::Gp src) {
-        a.std(src, TMP_MEM5q);
-        a.lfd(dst, TMP_MEM5q);
+        a.mtfprd(dst, src);
         a.fcfid(dst, dst);
     }
 
