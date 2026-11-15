@@ -138,6 +138,14 @@ void beamasm_flush_icache(const void *address, size_t size);
 #        define BEAM_ASM_NFUNC_SIZE (BEAM_ASM_FUNC_PROLOGUE_SIZE + 8)
 #    endif
 
+/* Size (in bytes) of a call_nif stub: an ErtsNativeFunc/call_nif prologue,
+ * three words of data, and the code that calls the NIF. */
+#    if defined(__powerpc64__)
+#        define BEAM_ASM_CALL_NIF_SIZE (BEAM_ASM_NFUNC_SIZE + 56)
+#    else
+#        define BEAM_ASM_CALL_NIF_SIZE (BEAM_ASM_NFUNC_SIZE + 48)
+#    endif
+
 /*
  * The code below is used to deal with intercepting the execution of a process
  * at the start of a function. It is used by tracing and nif loading.
