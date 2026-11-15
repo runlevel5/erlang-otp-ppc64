@@ -27,7 +27,9 @@
          local_basic/1,local_updates/1,non_atomic_names/1,
          external_records/1,any_record/1,
          matching/1,is_record_bif/1,type_opts/1,
-         fail_label/1,sys_core_nomatch/1]).
+         recursive_lambda/1,
+         fail_label/1,sys_core_nomatch/1,
+         unsafe_get_record_field/1]).
 
 %% Unexported records.
 -record #empty{}.
@@ -71,7 +73,8 @@ groups() ->
        is_record_bif,
        type_opts,
        fail_label,
-       sys_core_nomatch
+       sys_core_nomatch,
+       unsafe_get_record_field
       ]}].
 
 init_per_suite(Config) ->
@@ -815,6 +818,14 @@ ext_creation() ->
 ext_update(R) ->
     [try R#ext_records:vector{a = 1} catch _:_ -> true end].
 
+%% gh-11725: Variable substritution in `v3_core` did not look
+%% into native records.
+recursive_lambda(_Config) ->
+    recursive_lambda_1(),
+    ok.
+
+recursive_lambda_1() ->
+    fun F() -> #d{f = F} end.
 
 %% gh-11724: Crash in sys_core_fold. A nomatch warning should be
 %% emitted for `sys_core_nomatch_1/1`.
@@ -825,6 +836,17 @@ sys_core_nomatch(_Config) ->
 sys_core_nomatch_1(X) ->
     #d{f = X} = #{true => X},
     ok.
+
+%% gh-11726: Type info is not sufficient to guarantee safe rewrite
+%% from get_record_field to get_record_element. Disable the optimization
+%% for 29.
+unsafe_get_record_field(_Config) ->
+    true = unsafe_get_record_field_1(true),
+    false = unsafe_get_record_field_1(false),
+    ok.
+
+unsafe_get_record_field_1(true) -> try #d{f = true}#d.f catch _ -> ok end;
+unsafe_get_record_field_1(false) -> #d{f = false}#d.f.
 
 %%% Common utilities.
 

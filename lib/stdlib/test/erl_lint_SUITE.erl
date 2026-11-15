@@ -5372,6 +5372,54 @@ eep49(Config) when is_list(Config) ->
            {errors,[{{10,19},erl_lint,{unsafe_var,'A',{'else',{4,19}}}}],
             []}},
 
+          %% A maybe expression must not mark the variables already in
+          %% scope as used.
+          {unused_var1,
+           <<"t(Unused, X) ->
+                  case X of
+                      a -> maybe ok end;
+                      _ -> b
+                  end.
+           ">>,
+           [EnableMaybe],
+           {warnings,[{{1,23},erl_lint,{unused_var,'Unused'}}]}},
+          {unused_var2,
+           <<"t(Unused, X) ->
+                  case X of
+                      a -> maybe ok ?= X else _ -> error end;
+                      _ -> b
+                  end.
+           ">>,
+           [EnableMaybe],
+           {warnings,[{{1,23},erl_lint,{unused_var,'Unused'}}]}},
+          {unused_var3,
+           <<"t(X) ->
+                  Unused = X(),
+                  receive
+                      a -> maybe ok end
+                  end.
+           ">>,
+           [EnableMaybe],
+           {warnings,[{{2,19},erl_lint,{unused_var,'Unused'}}]}},
+          {used_var1,
+           <<"t(Used, X) ->
+                  case X of
+                      a -> maybe Used end;
+                      _ -> b
+                  end.
+           ">>,
+           [EnableMaybe],
+           []},
+          {used_var2,
+           <<"t(Used, X) ->
+                  case X of
+                      a -> maybe ok ?= X else _ -> Used end;
+                      _ -> b
+                  end.
+           ">>,
+           [EnableMaybe],
+           []},
+
           %% Using '?=' not at the top-level of a 'maybe' ... 'else' is forbidden.
           {illegal_maybe_match1,
            <<"t(X) ->
@@ -5846,6 +5894,12 @@ native_records(Conf) ->
            """,
            [],
            []},
+          {no_auto_import_guard,
+            <<"-compile([no_auto_import]).
+              t(X) when erlang:is_record(X, mod, a) -> ok.
+             ">>,
+           [],
+           []},
           {redefine_imported_native_record_1,
            <<"-record #a{}.
               -record(b, {}).
@@ -5903,6 +5957,13 @@ native_records(Conf) ->
                     {{2,35},erl_lint,{redefine_field,r2,a}},
                     {{3,30},erl_lint,{redefine_field,r3,a}}],
             []}},
+          {update_redefine_record_field,
+           <<"-record #a{a, b}.
+              update_local(A) -> A#a{a = 1, a = b}.
+              update_ext(B) -> B#ext:b{a = 1, a = b}.">>,
+           [],
+           {errors,[{{2,45},erl_lint,{redefine_field,a,a}},
+                    {{3,47},erl_lint,{redefine_field,{ext,b},a}}],[]}},
           {undefined_field_1,
            <<"-record #r{a=a, c=c}.
                mk() -> #r{a = a, b = b}.

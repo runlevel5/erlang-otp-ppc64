@@ -39,7 +39,7 @@ jobs:
       contains(github.event.pull_request.title, 'update dependency') &&
       github.actor == 'renovate-bot'
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         # zizmor: ignore[artipacked]
         # git push in renovate-vendored-deps.sh needs credentials
         with:
@@ -63,6 +63,8 @@ jobs:
         if: ${{ failure() }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ ! -f vendor.log ]; then
             echo "vendor.log not found!"
@@ -74,7 +76,7 @@ jobs:
           # Truncate log to last ~60k characters to stay under GitHub comment limits
           LOG_CONTENT=$(tail -c 60000 vendor.log)
 
-          gh pr comment "$GITHUB_REF_NAME" --body "🚨 Vendor update failed. Log output:
+          gh pr comment "$PR_NUMBER" --body "🚨 Vendor update failed. Log output:
 
           \`\`\`text
           $LOG_CONTENT

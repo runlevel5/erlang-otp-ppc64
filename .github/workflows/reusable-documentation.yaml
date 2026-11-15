@@ -50,7 +50,7 @@ jobs:
       contents: read   # actions/checkout + ./.github/actions/build-base-image
       actions:  write  # actions/upload-artifact
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -81,12 +81,12 @@ jobs:
             rm -rf man
             tar czf ../otp_doc_html.tar.gz *
       - name: Upload html documentation archive
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # ratchet:actions/upload-artifact@v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: otp_doc_html
           path: otp_doc_html.tar.gz
       - name: Upload man documentation archive
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # ratchet:actions/upload-artifact@v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: otp_doc_man
           path: otp_doc_man.tar.gz
@@ -95,6 +95,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.TRIGGER_ERLANG_ORG_BUILD }}
         run: |
-          curl -H "Authorization: token ${GITHUB_TOKEN}" -X POST -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/erlang/erlang-org/actions/workflows/update-gh-cache.yaml/dispatches" -d '{"ref":"master"}'
+          # --fail-with-body: exit non-zero on a non-2xx response.
+          # without it curl exits 0 for any completed transaction and a failed trigger goes unnoticed.
+          curl --fail-with-body -sS -H "Authorization: token ${GITHUB_TOKEN}" -X POST -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/erlang/erlang-org/actions/workflows/update-gh-cache.yaml/dispatches" -d '{"ref":"master"}'
       - name: Run html link check
         run: docker run -v $PWD/:/github otp "cd /github/docs && /github/scripts/otp_check_html_links.exs"

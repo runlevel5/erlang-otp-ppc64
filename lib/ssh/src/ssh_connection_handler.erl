@@ -1336,15 +1336,15 @@ handle_event(info, {fwd_connect_received, Sock, ChId, ChanCB}, StateName, #data{
     %% crashing the connection handler.
     case ssh_client_channel:cache_lookup(Cache, ChId) of
         #channel{} = Channel ->
-	    case ssh_connection_sup:start_channel(?role(StateName), ConnectionSup, self(), ChanCB, ChId, [Sock], undefined) of
-		{ok, Pid} ->
-		    ssh_client_channel:cache_update(Cache, Channel#channel{user=Pid}),
-		    gen_tcp:controlling_process(Sock, Pid),
-		    inet:setopts(Sock, [{active,once}]);
-		{error, _Reason} ->
-		    %% Refuse connection; limit handled via {fwd_connect_failed,...}.
-		    gen_tcp:close(Sock)
-	    end;
+            case ssh_connection_sup:start_channel(?role(StateName), ConnectionSup, self(), ChanCB, ChId, [Sock], undefined) of
+                {ok, Pid} ->
+                    ssh_client_channel:cache_update(Cache, Channel#channel{user=Pid}),
+                    gen_tcp:controlling_process(Sock, Pid),
+                    inet:setopts(Sock, [{active,once}]);
+                {error, _Reason} ->
+                    %% Refuse connection; limit handled via {fwd_connect_failed,...}.
+                    gen_tcp:close(Sock)
+            end;
         undefined ->
             gen_tcp:close(Sock)
     end,

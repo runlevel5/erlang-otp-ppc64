@@ -31,6 +31,8 @@
 -include("ssh_connect.hrl").
 -include("ssh_auth.hrl").
 -include("ssh_test_lib.hrl").
+-include_lib("public_key/include/public_key.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 %% RFC 3526 Group 14 — 2048-bit MODP prime (generator = 2).
 -define(RFC3526_GROUP14_PRIME,
@@ -58,6 +60,8 @@
          bad_very_long_service_name/1,
          banner_sent_to_client/1,
          banner_not_sent_to_client/1,
+         strict_public_key_wire_decoding/1,
+         public_key_algorithm_binding/1,
          client_handles_keyboard_interactive_0_pwds/1,
          client_handles_banner_keyboard_interactive/1,
          client_info_line/1,
@@ -79,6 +83,7 @@
          kex_strict_violation_new_keys/1,
          kex_strict_violation/1,
          kex_strict_violation_2/1,
+         kex_strict_violation_pre_kexinit/1,
          kex_strict_msg_unknown/1,
          dh_kexdh_init_e_out_of_bounds/1,
          gex_client_init_option_groups/1,
@@ -93,6 +98,7 @@
          lib_no_match/1,
          lib_works_as_client/1,
          lib_works_as_server/1,
+         password_not_utf8/1,
          modify_append/1,
          modify_combo/1,
          modify_prepend/1,
@@ -182,6 +188,9 @@ suite() ->
                 ok;
            (extra_ssh_msg_service_request, 1) ->
                 ok;
+           (password_not_utf8, 2) ->
+                %% one failfun report per user (known and unknown)
+                ok;
            (_, EventNumber) ->
                 {fail, lists:flatten(
                          io_lib:format("unexpected event cnt: ~s",
@@ -189,7 +198,8 @@ suite() ->
         end,
     SkipTc = [kex_strict_negotiated,
               kex_strict_violation,
-              kex_strict_violation_2],
+              kex_strict_violation_2,
+              kex_strict_violation_pre_kexinit],
     [{ct_hooks,[ts_install_cth,
                 {cth_events,
                  [{verify_fun, VerifyFun},
@@ -219,7 +229,8 @@ groups() ->
     [{tool_tests, [], [lib_works_as_client,
 		       lib_works_as_server,
 		       lib_match,
-		       lib_no_match
+                       lib_no_match,
+                       password_not_utf8
 		      ]},
      {packet_error, [], [decompression_bomb_client,
                          decompression_bomb_client_after_auth,
@@ -247,6 +258,7 @@ groups() ->
                 kex_strict_violation_new_keys,
                 kex_strict_violation,
                 kex_strict_violation_2,
+                kex_strict_violation_pre_kexinit,
                 kex_strict_msg_unknown,
                 dh_kexdh_init_e_out_of_bounds]},
      {service_requests, [], [bad_service_name,
@@ -259,7 +271,9 @@ groups() ->
      {authentication, [], [client_handles_keyboard_interactive_0_pwds,
                            client_handles_banner_keyboard_interactive,
                            banner_sent_to_client,
-                           banner_not_sent_to_client
+                           banner_not_sent_to_client,
+                           strict_public_key_wire_decoding,
+                           public_key_algorithm_binding
 			  ]},
      {ext_info, [], [no_ext_info_s1,
                      no_ext_info_s2,
@@ -358,6 +372,7 @@ init_per_testcase(TC, Config) when TC == kex_strict_negotiated;
                                    TC == kex_strict_violation_new_keys;
                                    TC == kex_strict_violation;
                                    TC == kex_strict_violation_2;
+                                   TC == kex_strict_violation_pre_kexinit;
                                    TC == kex_strict_msg_unknown ->
     Level = ssh_test_lib:get_log_level(),
     ssh_test_lib:set_log_level(debug),
@@ -430,6 +445,7 @@ end_per_testcase(TC, Config) when TC == kex_strict_negotiated;
                                   TC == kex_strict_violation_new_keys;
                                   TC == kex_strict_violation;
                                   TC == kex_strict_violation_2;
+                                  TC == kex_strict_violation_pre_kexinit;
                                   TC == kex_strict_msg_unknown ->
     ssh_test_lib:set_log_level(proplists:get_value(saved_log_level, Config)),
     Config;
@@ -474,6 +490,36 @@ lib_works_as_client(Config) ->
 	   close_socket
 	  ], EndState).
 
+
+%%--------------------------------------------------------------------
+%%% A password that is not valid UTF-8 must give a normal auth failure
+%%% for known and unknown users alike (GHSA-3w6p-vwhf-wvp4).
+password_not_utf8(Config) ->
+    {KnownUser, _Pwd} = server_user_password(Config),
+    [password_not_utf8(Config, User) || User <- [KnownUser, "no_such_user"]],
+    ok.
+
+password_not_utf8(Config, User) ->
+    {ok, AfterKexState} = connect_and_kex(Config),
+    BadPwd = <<255, $a, 16#c3>>,
+    {ok, EndState} =
+        ssh_trpt_test_lib:exec(
+          [{send, #ssh_msg_service_request{name = "ssh-userauth"}},
+           {match, #ssh_msg_service_accept{name = "ssh-userauth"}, receive_msg},
+           {send, #ssh_msg_userauth_request{user = User,
+                                            service = "ssh-connection",
+                                            method = "password",
+                                            data = <<?BOOLEAN(?FALSE),
+                                                     ?STRING(BadPwd)>>}},
+           {match, #ssh_msg_userauth_failure{_ = '_'}, receive_msg}
+          ], AfterKexState),
+    {ok, _} =
+        ssh_trpt_test_lib:exec(
+          [{send, #ssh_msg_disconnect{code = ?SSH_DISCONNECT_BY_APPLICATION,
+                                      description = "End of test",
+                                      language = ""}},
+           close_socket
+          ], EndState).
 
 %%--------------------------------------------------------------------
 %%% Connect an erlang client and check that the testlib can act as a server.
@@ -1365,6 +1411,66 @@ banner_not_sent_to_client(Config) ->
     Config.
 
 %%%--------------------------------------------------------------------
+strict_public_key_wire_decoding(_Config) ->
+    PublicKey = #'RSAPublicKey'{modulus = 3233, publicExponent = 17},
+    KeyBlob = iolist_to_binary(ssh_message:ssh2_pubkey_encode(PublicKey)),
+    PublicKey = ssh_message:ssh2_pubkey_decode(KeyBlob),
+    ?assertError({badmatch, _},
+                 ssh_message:ssh2_pubkey_decode(<<KeyBlob/binary, 0>>)),
+
+    Signature = <<1, 2, 3>>,
+    SignatureContainer = <<?STRING(<<"rsa-sha2-256">>), ?STRING(Signature)>>,
+    Reply = <<"dh", ?BYTE(?SSH_MSG_KEXDH_REPLY),
+              ?Ebinary(KeyBlob), ?Empint(1), ?Ebinary(SignatureContainer)>>,
+    #ssh_msg_kexdh_reply{public_host_key = PublicKey,
+                         f = 1,
+                         h_sig = {"rsa-sha2-256", Signature}} =
+        ssh_message:decode(Reply),
+
+    BadSignatureContainer = <<SignatureContainer/binary, 0>>,
+    BadReply = <<"dh", ?BYTE(?SSH_MSG_KEXDH_REPLY),
+                 ?Ebinary(KeyBlob), ?Empint(1), ?Ebinary(BadSignatureContainer)>>,
+    ?assertError(function_clause, ssh_message:decode(BadReply)).
+
+%%%--------------------------------------------------------------------
+public_key_algorithm_binding(Config) ->
+    User = "foo",
+    UserDir = ssh_test_lib:user_dir(Config),
+    {ok, PrivateKey} =
+        ssh_file:user_key('rsa-sha2-256', [{user_dir, UserDir}]),
+    PublicKey = ssh_file:extract_public_key(PrivateKey),
+    KeyBlob = iolist_to_binary(ssh_message:ssh2_pubkey_encode(PublicKey)),
+    Options = ssh_options:handle_options(server,
+                                         [{user_dir, UserDir},
+                                          {auth_methods, "publickey"}]),
+    Ssh = #ssh{opts = Options,
+               userauth_supported_methods = "publickey"},
+    SessionId = <<"test-session-id">>,
+
+    ValidRequest = signed_public_key_request(User, SessionId,
+                                             'rsa-sha2-256', 'rsa-sha2-256',
+                                             KeyBlob, PrivateKey),
+    ?assertMatch({authorized, User, {#ssh_msg_userauth_success{}, _}},
+                 ssh_auth:handle_userauth_request(ValidRequest, SessionId, Ssh)),
+
+    KeyMismatch = signed_public_key_request(User, SessionId,
+                                            'ecdsa-sha2-nistp256',
+                                            'ecdsa-sha2-nistp256',
+                                            KeyBlob, PrivateKey),
+    ?assertMatch({not_authorized, {User, undefined},
+                  {#ssh_msg_userauth_failure{}, _}},
+                 ssh_auth:handle_userauth_request(KeyMismatch, SessionId, Ssh)),
+
+    SignatureMismatch = signed_public_key_request(User, SessionId,
+                                                  'rsa-sha2-256',
+                                                  'rsa-sha2-512',
+                                                  KeyBlob, PrivateKey),
+    ?assertMatch({not_authorized, {User, undefined},
+                  {#ssh_msg_userauth_failure{}, _}},
+                 ssh_auth:handle_userauth_request(SignatureMismatch,
+                                                  SessionId, Ssh)).
+
+%%%--------------------------------------------------------------------
 client_info_line(Config) ->
     %% A client must not send an info-line. If it does, the server should handle
     %% handle this gracefully
@@ -1622,6 +1728,51 @@ kex_strict_violation(Config) ->
     [kex_strict_helper(Config, TestProcedure(Procedure), Reason) ||
         Procedure = {_, Reason, _} <- TestFlows],
     ct:log("==== END ====="),
+    ok.
+
+%%%----------------------------------------------------------------
+%%% A non-KEXINIT message before the peer's first KEXINIT is a strict KEX
+%%% violation (detected in verify_kexinit_is_first_msg/3): the server must
+%%% disconnect with KEY_EXCHANGE_FAILED, not a generic "Internal error".
+kex_strict_violation_pre_kexinit(Config0) ->
+    Config = ssh_test_lib:add_log_handler(?FUNCTION_NAME, Config0),
+    {ok, InitialState} = ssh_trpt_test_lib:exec(
+                           [{set_options, [print_ops, print_seqnums, print_messages]}]),
+    {ok, _} =
+        ssh_trpt_test_lib:exec(
+          [{connect,
+            ssh_test_lib:server_host(Config), ssh_test_lib:server_port(Config),
+            [{preferred_algorithms,[{kex,[?DEFAULT_KEX]},
+                                    {cipher,?DEFAULT_CIPHERS}]},
+             {silently_accept_hosts, true},
+             {recv_ext_info, false},
+             {user_dir, ssh_test_lib:user_dir(Config)},
+             {user_interaction, false}
+            | proplists:get_value(extra_options,Config,[])
+            ]},
+           receive_hello,
+           {send, hello},
+           %% A non-KEXINIT message before our own KEXINIT. It is accepted
+           %% at receive time (strict KEX is not negotiated yet) but advances
+           %% the server recv_sequence. The following KEXINIT then negotiates
+           %% strict KEX and verify_kexinit_is_first_msg/3 retroactively
+           %% rejects the handshake because recv_sequence =/= 1.
+           {send, ssh_msg_ignore},
+           {send, ssh_msg_kexinit},
+           close_socket],
+          InitialState),
+    ct:sleep(100),
+    {ok, Events} = ssh_test_lib:get_log_events(Config),
+    ssh_test_lib:rm_log_handler(?FUNCTION_NAME),
+    ct:log("Events = ~p", [Events]),
+    %% Precondition: strict KEX was actually negotiated by the server
+    %% (otherwise verify_kexinit_is_first_msg/3 would not fire at all).
+    true = ssh_test_lib:kex_strict_negotiated(server, Events),
+    %% Assert the server disconnected with reason 3 (KEY_EXCHANGE_FAILED).
+    %% The pre-fix bug reported reason 11 "Internal error" here, so matching
+    %% the reason code (not just "a violation happened") makes this a guard.
+    true = ssh_test_lib:event_logged(
+             server, Events, "code = 3 [RFC4253 11.1]: Key exchange failed"),
     ok.
 
 kex_strict_violation_2(Config0) ->
@@ -2209,6 +2360,29 @@ client_guesses_incorrectly(Config) ->
 %%%==== Internal functions ========================================
 %%%================================================================
 
+signed_public_key_request(User, SessionId, OuterAlg, InnerAlg,
+                          KeyBlob, PrivateKey) ->
+    UserBin = unicode:characters_to_binary(User),
+    OuterAlgBin = atom_to_binary(OuterAlg, latin1),
+    InnerAlgBin = atom_to_binary(InnerAlg, latin1),
+    SignedData = <<?STRING(SessionId),
+                   ?BYTE(?SSH_MSG_USERAUTH_REQUEST),
+                   ?STRING(UserBin),
+                   ?STRING(<<"ssh-connection">>),
+                   ?STRING(<<"publickey">>),
+                   ?BYTE(?TRUE),
+                   ?STRING(OuterAlgBin),
+                   ?STRING(KeyBlob)>>,
+    Signature = ssh_transport:sign(SignedData, ssh_transport:sha(OuterAlg),
+                                   PrivateKey),
+    SignatureContainer = <<?STRING(InnerAlgBin), ?STRING(Signature)>>,
+    #ssh_msg_userauth_request{user = User,
+                              service = "ssh-connection",
+                              method = "publickey",
+                              data = <<?BYTE(?TRUE),
+                                       ?STRING(OuterAlgBin),
+                                       ?STRING(KeyBlob),
+                                       ?STRING(SignatureContainer)>>}.
 chk_pref_algs(Config,
               ExpectedKex,
               ExpectedCiphers,

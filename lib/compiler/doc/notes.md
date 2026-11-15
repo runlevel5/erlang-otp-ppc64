@@ -405,6 +405,47 @@ This document describes the changes made to the Compiler application.
 [PR-9814]: https://github.com/erlang/otp/pull/9814
 [PR-10839]: https://github.com/erlang/otp/pull/10839
 
+## Compiler 9.0.6.4
+
+### Fixed Bugs and Malfunctions
+
+- Compilation of a function with thousands of clauses would be very slow.
+
+  Own Id: OTP-20437 Aux Id: [GH-11735], [PR-11767]
+
+- Sometimes compiling with `deterministic` would not guarantee generation of identical BEAM files for every build.
+
+  Own Id: OTP-20438 Aux Id: [GH-11748], [PR-11753]
+
+[GH-11735]: https://github.com/erlang/otp/issues/11735
+[PR-11767]: https://github.com/erlang/otp/pull/11767
+[GH-11748]: https://github.com/erlang/otp/issues/11748
+[PR-11753]: https://github.com/erlang/otp/pull/11753
+
+## Compiler 9.0.6.3
+
+### Fixed Bugs and Malfunctions
+
+- In rare circumstances, the type analysis pass of the compiler could run for many minutes.
+
+  Own Id: OTP-20365 Aux Id: [GH-11534], [PR-11566]
+
+- Certain uses of funs could crash the compiler. For example:
+  
+  ```
+  f() ->
+      F = fun Fn(0) -> 0; Fn(N) -> Fn(N - 1) end,
+      [F(X) || X <- [1, 2]].
+  ```
+  This has been corrected.
+
+  Own Id: OTP-20386 Aux Id: [GH-11619], [PR-11638]
+
+[GH-11534]: https://github.com/erlang/otp/issues/11534
+[PR-11566]: https://github.com/erlang/otp/pull/11566
+[GH-11619]: https://github.com/erlang/otp/issues/11619
+[PR-11638]: https://github.com/erlang/otp/pull/11638
+
 ## Compiler 9.0.6.2
 
 ### Fixed Bugs and Malfunctions
@@ -866,6 +907,47 @@ This document describes the changes made to the Compiler application.
 [PR-8670]: https://github.com/erlang/otp/pull/8670
 [PR-9334]: https://github.com/erlang/otp/pull/9334
 [PR-9604]: https://github.com/erlang/otp/pull/9604
+
+## Compiler 8.6.1.8
+
+### Fixed Bugs and Malfunctions
+
+- Compilation of a function with thousands of clauses would be very slow.
+
+  Own Id: OTP-20437 Aux Id: [GH-11735], [PR-11767]
+
+- Sometimes compiling with `deterministic` would not guarantee generation of identical BEAM files for every build.
+
+  Own Id: OTP-20438 Aux Id: [GH-11748], [PR-11753]
+
+[GH-11735]: https://github.com/erlang/otp/issues/11735
+[PR-11767]: https://github.com/erlang/otp/pull/11767
+[GH-11748]: https://github.com/erlang/otp/issues/11748
+[PR-11753]: https://github.com/erlang/otp/pull/11753
+
+## Compiler 8.6.1.7
+
+### Fixed Bugs and Malfunctions
+
+- In rare circumstances, the type analysis pass of the compiler could run for many minutes.
+
+  Own Id: OTP-20365 Aux Id: [GH-11534], [PR-11566]
+
+- Certain uses of funs could crash the compiler. For example:
+  
+  ```
+  f() ->
+      F = fun Fn(0) -> 0; Fn(N) -> Fn(N - 1) end,
+      [F(X) || X <- [1, 2]].
+  ```
+  This has been corrected.
+
+  Own Id: OTP-20386 Aux Id: [GH-11619], [PR-11638]
+
+[GH-11534]: https://github.com/erlang/otp/issues/11534
+[PR-11566]: https://github.com/erlang/otp/pull/11566
+[GH-11619]: https://github.com/erlang/otp/issues/11619
+[PR-11638]: https://github.com/erlang/otp/pull/11638
 
 ## Compiler 8.6.1.6
 

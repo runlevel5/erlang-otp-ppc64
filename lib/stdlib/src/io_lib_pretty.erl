@@ -70,29 +70,26 @@ print(Term) ->
                 | {'record_print_fun', rec_print_fun()}
                 | {'strings', boolean()}
                 | {'maps_order', maps:iterator_order()}.
--type options() :: [option()].
+-type options() :: [option()] | options_map().
 -type options_map() :: map().
 
 -spec print_bin(term(), options_map()) -> {unicode:unicode_binary(), Sz::integer(), Col::integer()}.
-print_bin(Term, Options) when is_map(Options) ->
-    Col = maps:get(column, Options, 1),
-    Ll = maps:get(line_length, Options, 80),
-    D = maps:get(depth, Options, -1),
-    M = maps:get(line_max_chars, Options, -1),
-    T = maps:get(chars_limit, Options, -1),
-    RecDefFun = maps:get(record_print_fun, Options, no_fun),
-    InEncoding = maps:get(encoding, Options, epp:default_encoding()),
-    Strings = maps:get(strings, Options, true),
-    MapsOrder = maps:get(maps_order, Options, undefined),
-    print_bin(Term, Col, Ll, D, M, T, RecDefFun, {InEncoding, utf8}, Strings, MapsOrder);
-print_bin(Term, Options) when is_list(Options) ->
-    print_bin(Term, maps:from_list(Options)).
-
+print_bin(Term, Options) when is_list(Options); is_map(Options) ->
+    Col = get_option(column, Options, 1),
+    Ll = get_option(line_length, Options, 80),
+    D = get_option(depth, Options, -1),
+    M = get_option(line_max_chars, Options, -1),
+    T = get_option(chars_limit, Options, -1),
+    RecDefFun = get_option(record_print_fun, Options, no_fun),
+    InEncoding = get_option(encoding, Options, epp:default_encoding()),
+    Strings = get_option(strings, Options, true),
+    MapsOrder = get_option(maps_order, Options, undefined),
+    print_bin(Term, Col, Ll, D, M, T, RecDefFun, {InEncoding, utf8}, Strings, MapsOrder).
 
 -spec print(term(), rec_print_fun()) -> chars();
            (term(), options()) -> chars().
 
-print(Term, Options) when is_list(Options) ->
+print(Term, Options) when is_list(Options); is_map(Options) ->
     Col = get_option(column, Options, 1),
     Ll = get_option(line_length, Options, 80),
     D = get_option(depth, Options, -1),
@@ -1117,23 +1114,23 @@ print_length_binary(Bin, D, T, RF, {InEnc, utf8} = Enc, Str, Ord) ->
         printable_bin0(Bin, D1, tsub(T, 6), InEnc, binary)
     of
         {true, _Bin} ->
-            {Utf8, Len} = io_lib:write_string_bin(Bin, [], latin1),
-            {[$<,$<,$",Utf8,$",$>,$>], 6 + Len, 0, no_more};
+            {Utf8, Len} = io_lib:write_string_bin(Bin, $", latin1), %"
+            {[$<,$<,Utf8,$>,$>], 4 + Len, 0, no_more};
         {false, _Bin} ->
-            {Utf8, Len} = io_lib:write_string_bin(Bin, [], unicode),
-            {[$<,$<,$",Utf8,"\"/utf8>>"], 11 + Len, 0, no_more};
+            {Utf8, Len} = io_lib:write_string_bin(Bin, $", unicode), %"
+            {[$<,$<,Utf8,"/utf8>>"], 9 + Len, 0, no_more};
         {true, true, Prefix} ->
-            {S, Len} = io_lib:write_string_bin(Prefix, [], latin1), %"
+            {S, Len} = io_lib:write_string_bin(Prefix, $", latin1), %"
             More = fun(T1, Dd) ->
                            ?FUNCTION_NAME(Bin, D+Dd, T1, RF, Enc, Str, Ord)
                    end,
-            {[$<,$<,$",S|"\"...>>"], 9 + Len, 3, More};
+            {[$<,$<,S|"...>>"], 7 + Len, 3, More};
         {false, true, Prefix} ->
-            {S, Len} = io_lib:write_string_bin(Prefix, [], unicode), %"
+            {S, Len} = io_lib:write_string_bin(Prefix, $", unicode), %"
             More = fun(T1, Dd) ->
                            ?FUNCTION_NAME(Bin, D+Dd, T1, RF, Enc, Str, Ord)
                    end,
-            {[$<,$<,$",S|"\"/utf8...>>"], 14 + Len, 3, More};
+            {[$<,$<,S|"/utf8...>>"], 12 + Len, 3, More};
         false ->
             case io_lib:write_binary_bin(Bin, D, T, <<>>) of
                 {S, <<>>} ->
@@ -1619,9 +1616,11 @@ chars(C, N) ->
     S = chars(C, N bsr 1),
     [C, S | S].
 
-get_option(Key, TupleList, Default) ->
+get_option(Key, TupleList, Default) when is_list(TupleList) ->
     case lists:keyfind(Key, 1, TupleList) of
 	false -> Default;
 	{Key, Value} -> Value;
 	_ -> Default
-    end.
+    end;
+get_option(Key, Map, Default) when is_map(Map) ->
+    maps:get(Key, Map, Default).

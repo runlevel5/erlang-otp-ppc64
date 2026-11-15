@@ -2805,6 +2805,10 @@ gexpr({call,Anno,{atom,_Ar,is_record},[E0,{atom,_,_Name},{Type,_,_}]},
 gexpr({call,Anno,{atom,_Ar,is_record},[_,_,_]=Asvt0}, Vt, St0) ->
     {Asvt,St1} = gexpr_list(Asvt0, Vt, St0),
     {Asvt,add_error(Anno, illegal_guard_expr, St1)};
+gexpr({call,_Anno,{remote,_,{atom,_,erlang},{atom,_,is_record}},
+       [E0,{atom,_,_},{Type,_,_}]},
+      Vt, St0) when Type =:= integer; Type =:= atom ->
+    gexpr(E0, Vt, St0);
 gexpr({call,Anno,{remote,_,{atom,_,erlang},{atom,_,is_record}=Isr},[_,_,_]=Args},
       Vt, St0) ->
     gexpr({call,Anno,Isr,Args}, Vt, St0);
@@ -3256,18 +3260,15 @@ expr({maybe_match,Anno,P,E}, Vt, St0) ->
 expr({'maybe',Anno,Es}, Vt, St) ->
     %% No variables are exported.
     {Evt0, St1} = exprs(Es, Vt, St),
-    Evt1 = vtupdate(vtunsafe({'maybe',Anno}, Evt0, Vt), Vt),
-    Evt2 = vtmerge(Evt0, Evt1),
-    {Evt2,St1};
+    {vtupd_unsafe({'maybe',Anno}, Evt0, Vt),St1};
 expr({'maybe',MaybeAnno,Es,{'else',ElseAnno,Cs}}, Vt, St) ->
     %% No variables are exported.
     {Evt0, St1} = exprs(Es, Vt, St),
     Evt1 = vtupdate(vtunsafe({'maybe',MaybeAnno}, Evt0, Vt), Vt),
     {Cvt0, St2} = icrt_clauses(Cs, {'else',ElseAnno}, Evt1, St1),
-    Cvt1 = vtupdate(vtunsafe({'else',ElseAnno}, Cvt0, Vt), Vt),
-    Evt2 = vtmerge(Evt0, Evt1),
-    Cvt2 = vtmerge(Cvt0, Cvt1),
-    {vtmerge(Evt2, Cvt2),St2};
+    Evt2 = vtupd_unsafe({'maybe',MaybeAnno}, Evt0, Vt),
+    Cvt1 = vtupd_unsafe({'else',ElseAnno}, Cvt0, Vt),
+    {vtmerge(Evt2, Cvt1),St2};
 %% No comparison or boolean operators yet.
 expr({op,Anno,Op,A}, Vt, St) ->
     vtupd_export_expr_list({Op, Anno}, [A], Vt, St);
@@ -3681,9 +3682,15 @@ check_fields(Fs, Flavor, Name, Fields, Vt0, St0, CheckFun, DiagFlavor) ->
               end, {[],[], St0}, Fs),
     {Uvt,St1}.
 
-check_field({record_field,_Af,_F,Val}, native, _Name, unknown,
+check_field({record_field,Af,{atom,_Aa,F},Val}, native, Name, unknown,
             Vt, St0, Rfs, CheckFun, _DiagFlavor) ->
-    {Rfs, CheckFun(Val, Vt, St0)};
+    %% External native records.
+    case member(F, Rfs) of
+        true ->
+            {Rfs,{[],add_error(Af, {redefine_field,Name,F}, St0)}};
+        false ->
+            {[F|Rfs], CheckFun(Val, Vt, St0)}
+    end;
 check_field({record_field,Af,{atom,Aa,F},Val}, Flavor, Name, Fields,
             Vt, St0, Rfs, CheckFun, DiagFlavor) ->
     case member(F, Rfs) of

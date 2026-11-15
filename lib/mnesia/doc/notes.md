@@ -118,6 +118,27 @@ is the version number of Mnesia.
 [PR-7315]: https://github.com/erlang/otp/pull/7315
 [PR-10839]: https://github.com/erlang/otp/pull/10839
 
+## Mnesia 4.25.3.4
+
+### Fixed Bugs and Malfunctions
+
+- Fixed the type specification for `mnesia:restore/2`, which incorrectly listed the operation `restore_tables` instead of `recreate_tables`, causing Dialyzer to reject valid calls and accept invalid ones.
+
+  Own Id: OTP-20442 Aux Id: [PR-11755]
+
+[PR-11755]: https://github.com/erlang/otp/pull/11755
+
+## Mnesia 4.25.3.3
+
+### Fixed Bugs and Malfunctions
+
+- Fixed `mnesia:force_load_table/1` getting stuck when the remote node becomes unreachable during table loading. When a network loader is aborted due to sender node going down and a user has forced a table load, we now retry loading from disc instead. Additionally, for disc_only_copies tables, the process actually loading the table is the dets server process, not the mnesia loader, so it would not receive the abort notification and would hang indefinitely. Now it correctly receives the notification and aborts table loading.
+
+  Own Id: OTP-20256 Aux Id: [GH-11344], [PR-11426]
+
+[GH-11344]: https://github.com/erlang/otp/issues/11344
+[PR-11426]: https://github.com/erlang/otp/pull/11426
+
 ## Mnesia 4.25.3.2
 
 ### Fixed Bugs and Malfunctions
@@ -268,6 +289,27 @@ is the version number of Mnesia.
 
 [PR-9079]: https://github.com/erlang/otp/pull/9079
 [PR-9670]: https://github.com/erlang/otp/pull/9670
+
+## Mnesia 4.23.5.6
+
+### Fixed Bugs and Malfunctions
+
+- Fixed the type specification for `mnesia:restore/2`, which incorrectly listed the operation `restore_tables` instead of `recreate_tables`, causing Dialyzer to reject valid calls and accept invalid ones.
+
+  Own Id: OTP-20442 Aux Id: [PR-11755]
+
+[PR-11755]: https://github.com/erlang/otp/pull/11755
+
+## Mnesia 4.23.5.5
+
+### Fixed Bugs and Malfunctions
+
+- Fixed `mnesia:force_load_table/1` getting stuck when the remote node becomes unreachable during table loading. When a network loader is aborted due to sender node going down and a user has forced a table load, we now retry loading from disc instead. Additionally, for disc_only_copies tables, the process actually loading the table is the dets server process, not the mnesia loader, so it would not receive the abort notification and would hang indefinitely. Now it correctly receives the notification and aborts table loading.
+
+  Own Id: OTP-20256 Aux Id: [GH-11344], [PR-11426]
+
+[GH-11344]: https://github.com/erlang/otp/issues/11344
+[PR-11426]: https://github.com/erlang/otp/pull/11426
 
 ## Mnesia 4.23.5.4
 

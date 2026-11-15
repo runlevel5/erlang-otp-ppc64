@@ -45,7 +45,7 @@ jobs:
       contents: read   # actions/cache (restore/save wxWidgets cache)
       actions:  write  # actions/download-artifact + actions/upload-artifact
     steps:
-      - uses: Vampire/setup-wsl@6a8db447be7ed35f2f499c02c6e60ff77ef11278 # ratchet:Vampire/setup-wsl@v6.0.0
+      - uses: Vampire/setup-wsl@4c48163d9f981914dd8caa0fc335fe19cca5bff4 # v7.2.0
         with:
           distribution: Ubuntu-18.04
 
@@ -70,10 +70,15 @@ jobs:
         run: echo "os=${ImageOS:-unknown}" >> "$GITHUB_OUTPUT"
 
       - name: Cache wxWidgets
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # ratchet:actions/cache@v5.0.3
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: wxWidgets
-          key: wxWidgets-${{ env.WXWIDGETS_VERSION }}-${{ steps.image.outputs.os }}
+          # The cached directory is a built wxWidgets that bakes in WebView2 and setup.h edits,
+          # plus the build command -- all defined in this workflow.
+          #
+          # We hash the workflow file so any change to those build-affecting inputs
+          # invalidates the cache (otherwise it would be silently skipped by the cache-hit on the build steps).
+          key: wxWidgets-${{ env.WXWIDGETS_VERSION }}-${{ steps.image.outputs.os }}-${{ hashFiles('.github/workflows/reusable-build-windows.yaml') }}
 
       # actions/cache on Windows sometimes does not set cache-hit even though there was one. Setting it manually.
       - name: Set wxWidgets cache
@@ -116,7 +121,7 @@ jobs:
           nmake TARGET_CPU=amd64 BUILD=release SHARED=0 DIR_SUFFIX_CPU= -f makefile.vc
 
       - name: Download source archive
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # ratchet:actions/download-artifact@v6.0.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: otp_prebuilt
 
@@ -145,7 +150,11 @@ jobs:
           ./otp_build installer_win32
 
       - name: Upload installer
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # ratchet:actions/upload-artifact@v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: otp_win32_installer
           path: otp/release/win32/otp*.exe
+          # Fail the build if installer_win32 produced no installer;
+          # the default 'warn' would let a build that shipped nothing
+          # pass as green (there is no in-CI consumer to catch it).
+          if-no-files-found: error

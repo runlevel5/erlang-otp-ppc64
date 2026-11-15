@@ -3180,6 +3180,8 @@ jump_iv(<<X, Rest/binary>>, JumpIV) ->
 -type pk_sign_verify_algs() :: rsa | dss | ecdsa | eddsa | mldsa() | slh_dsa().
 -type mldsa() :: mldsa44 | mldsa65 | mldsa87.
 -type mldsa_private() :: {seed | expandedkey, binary()}.
+-type mldsa_expanded_key() :: binary().
+-type mldsa_keygen_private() :: mldsa_expanded_key() | {seed, binary()}.
 -type mldsa_public() :: binary().
 -type slh_dsa() :: slh_dsa_shake_128s | slh_dsa_shake_128f | slh_dsa_sha2_128s | slh_dsa_sha2_128f
                  | slh_dsa_shake_192s | slh_dsa_shake_192f | slh_dsa_sha2_192s | slh_dsa_sha2_192f
@@ -3187,15 +3189,47 @@ jump_iv(<<X, Rest/binary>>, JumpIV) ->
 -type slh_dsa_private() :: binary().
 -type slh_dsa_public() :: binary().
 
--doc(#{group => <<"Public Key Sign and Verify">>,
-       equiv => rsa_sign_verify_padding()}).
--type pk_sign_verify_opts() :: [ rsa_sign_verify_opt() ] .
+-doc """
+Options for `sign/5` and `verify/6`.
+
+Which options are accepted depends on `Algorithm`:
+
+- `rsa` - see `t:rsa_sign_verify_opt/0`.
+- [ML-DSA](`t:mldsa/0`) and [SLH-DSA](`t:slh_dsa/0`) - see
+  `t:pqc_sign_verify_opt/0`.
+
+Passing a non-empty option list for any other algorithm raises a `badarg`
+exception.
+""".
+-doc(#{group => <<"Public Key Sign and Verify">>}).
+-type pk_sign_verify_opts() :: [rsa_sign_verify_opt()
+                               | pqc_sign_verify_opt()].
 
 -doc(#{group => <<"Public Key Sign and Verify">>,
        equiv => rsa_sign_verify_padding()}).
 -type rsa_sign_verify_opt() :: {rsa_padding, rsa_sign_verify_padding()}
                              | {rsa_pss_saltlen, integer()}
                              | {rsa_mgf1_md, sha2()}.
+
+-doc """
+Options for ML-DSA (`t:mldsa/0`) and SLH-DSA (`t:slh_dsa/0`) sign and verify.
+
+- **`{context_string, Context}`** - The context string `ctx` defined in
+  [FIPS 204](https://csrc.nist.gov/pubs/fips/204/final) (ML-DSA) and
+  [FIPS 205](https://csrc.nist.gov/pubs/fips/205/final) (SLH-DSA). It binds
+  the signature to an application-specific domain, so a signature created
+  with one context does not verify with another.
+
+  `Context` must be a binary of at most 255 bytes, otherwise a `badarg`
+  exception is raised. The same `Context` must be given to `verify/6` as was
+  given to `sign/5`. An empty binary is equivalent to not giving the option.
+
+  The context is used by the "pure" signature variants, see `sign/5`.
+
+*Since OTP @OTP-20368@*.
+""".
+-doc(#{group => <<"Public Key Sign and Verify">>}).
+-type pqc_sign_verify_opt() :: {context_string, binary()}.
 
 -doc """
 Options for sign and verify.
@@ -3247,6 +3281,14 @@ The msg is either the binary "cleartext" data to be signed or it is the hashed
 value of "cleartext" i.e. the digest (plaintext).
 
 Algorithm `dss` can only be used together with digest type `sha`.
+
+ML-DSA (`t:mldsa/0`) and SLH-DSA (`t:slh_dsa/0`) signatures are created with
+the "pure" variants of [FIPS 204](https://csrc.nist.gov/pubs/fips/204/final)
+and [FIPS 205](https://csrc.nist.gov/pubs/fips/205/final), not with the
+pre-hash variants HashML-DSA and HashSLH-DSA. Use digest type `none` for these
+algorithms. With any other digest type the message is first hashed and the
+digest is then signed with the pure variant, which does not interoperate with
+HashML-DSA or HashSLH-DSA.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 
@@ -3349,6 +3391,8 @@ The msg is either the binary "cleartext" data to be signed or it is the hashed
 value of "cleartext" i.e. the digest (plaintext).
 
 Algorithm `dss` can only be used together with digest type `sha`.
+
+For ML-DSA and SLH-DSA, see `sign/5` about pure and pre-hash variants.
 
 Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 
@@ -3612,8 +3656,8 @@ pkey_crypt_nif(_Algorithm, _In, _Key, _Options, _IsPrivate, _IsEncrypt) -> ?nif_
 -spec generate_key(Type, Params)
                  -> {PublicKey, PrivKeyOut}
                         when Type :: dh | ecdh | eddh | eddsa | rsa | mldsa() | mlkem512 | mlkem768 | mlkem1024 | slh_dsa() | srp,
-                             PublicKey :: dh_public() | ecdh_public() | rsa_public() | srp_public(),
-                             PrivKeyOut :: dh_private() | ecdh_private() | rsa_private() | {srp_public(),srp_private()},
+                             PublicKey :: dh_public() | ecdh_public() | rsa_public() | mldsa_public() | srp_public(),
+                             PrivKeyOut :: dh_private() | ecdh_private() | rsa_private() | mldsa_expanded_key() | {srp_public(),srp_private()},
                              Params :: dh_params() | ecdh_params() | eddsa_params() | rsa_params() | srp_gen_params() | [].
 generate_key(Type, Params) ->
     generate_key(Type, Params, undefined).
@@ -3655,9 +3699,9 @@ Uses the [3-tuple style](`m:crypto#error_3tup`) for error handling.
 -spec generate_key(Type, Params, PrivKeyIn)
                  -> {PublicKey, PrivKeyOut}
                         when Type :: dh | ecdh | eddh | eddsa | rsa | mldsa() | mlkem512 | mlkem768 | mlkem1024 | srp | slh_dsa(),
-                             PublicKey :: dh_public() | ecdh_public() | rsa_public() | srp_public(),
-                             PrivKeyIn :: undefined | dh_private() | ecdh_private() | rsa_private() | {srp_public(),srp_private()},
-                             PrivKeyOut :: dh_private() | ecdh_private() | rsa_private() | {srp_public(),srp_private()},
+                             PublicKey :: dh_public() | ecdh_public() | rsa_public() | mldsa_public() | srp_public(),
+                             PrivKeyIn :: undefined | dh_private() | ecdh_private() | rsa_private() | mldsa_keygen_private() | {srp_public(),srp_private()},
+                             PrivKeyOut :: dh_private() | ecdh_private() | rsa_private() | mldsa_expanded_key() | {srp_public(),srp_private()},
                              Params :: dh_params() | ecdh_params() | eddsa_params() | rsa_params() | srp_comp_params() | []
                                        .
 

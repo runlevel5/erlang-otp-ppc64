@@ -19,6 +19,7 @@
     "exclude": ["./erts/emulator/asmjit/vendor.info"],
     "supplier": "Person: Petr Kobalicek",
     "purl": "pkg:github/runlevel5/asmjit",
-    "sha": "efcd203371c1675b17425aa3f90f06c79eb89ccb"
+    "sha": "efcd203371c1675b17425aa3f90f06c79eb89ccb",
+    "annotation": "Vendor package modified in Erlang/OTP"
   }
 ]
