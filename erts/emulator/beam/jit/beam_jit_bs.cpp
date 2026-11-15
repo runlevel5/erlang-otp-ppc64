@@ -264,8 +264,12 @@ static UWord bs_get_flags(const BeamFile *beam, const ArgVal &val) {
             Eterm elem = CAR(consp);
             switch (elem) {
             case am_little:
-            case am_native:
                 flags |= BSF_LITTLE;
+                break;
+            case am_native:
+#if !defined(WORDS_BIGENDIAN)
+                flags |= BSF_LITTLE;
+#endif
                 break;
             case am_signed:
                 flags |= BSF_SIGNED;
