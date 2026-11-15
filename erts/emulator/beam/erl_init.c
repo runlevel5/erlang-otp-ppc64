@@ -599,6 +599,9 @@ __decl_noreturn void __noreturn  erts_usage(void)
 
 #ifdef BEAMASM
     erts_fprintf(stderr, "-JDdump bool   enable or disable dumping of generated assembly code for each module loaded\n");
+#if defined(__powerpc64__)
+    erts_fprintf(stderr, "-JDpower8 bool restrict JIT:ed code to instructions that exist on POWER8\n");
+#endif
     erts_fprintf(stderr, "-JPcover true|false|line|line_counters|function|function_counters  enable or disable instrumentation for coverage\n");
     erts_fprintf(stderr, "-JPperf true|false|dump|map|fp|no_fp   enable or disable support for perf on Linux\n");
     erts_fprintf(stderr, "-JPperfdirectory <directory>    set the directory perf files are stored. Default: /tmp\n");
@@ -1724,6 +1727,21 @@ erl_start(int argc, char **argv)
                         erts_fprintf(stderr, "bad +JDdump flag %s\n", arg);
                         erts_usage();
                     }
+                } else if (has_prefix("power8", sub_param)) {
+#if defined(__powerpc64__)
+                    arg = get_arg(sub_param+6, argv[i + 1], &i);
+                    if (sys_strcmp(arg, "true") == 0) {
+                        erts_jit_ppc_power8_only = 1;
+                    } else if (sys_strcmp(arg, "false") == 0) {
+                        erts_jit_ppc_power8_only = 0;
+                    } else {
+                        erts_fprintf(stderr, "bad +JDpower8 flag %s\n", arg);
+                        erts_usage();
+                    }
+#else
+                    erts_fprintf(stderr, "+JDpower8 is not supported on this platform\n");
+                    erts_usage();
+#endif
                 }
                 break;
             case 'P':

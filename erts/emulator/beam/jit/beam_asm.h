@@ -51,6 +51,9 @@ extern enum beamasm_perf_flags erts_jit_perf_support;
 extern char etrs_jit_perf_directory[MAXPATHLEN];
 #    endif
 extern int erts_jit_single_map;
+#    if defined(__powerpc64__)
+extern int erts_jit_ppc_power8_only;
+#    endif
 
 void beamasm_init(void);
 void *beamasm_new_assembler(Eterm mod,

@@ -790,6 +790,17 @@ behavior of earlier flags.
   used to store `perf` dump and map files when running with the JIT on Linux.
   Defaults to `/tmp`.
 
+- **`+JDpower8 true|false`{: #+JDpower8 }** - Restricts JIT:ed code to
+  instructions that exist on POWER8 (Power ISA 2.07), even when the processor
+  is newer.
+
+  The JIT on PowerPC normally chooses instructions according to the processor it
+  runs on. This flag makes it generate the code meant for POWER8 on newer
+  processors too, which is useful for testing that code. It is only available
+  on PowerPC.
+
+  Since: OTP 29.2
+
 - **`+JMsingle true|false`{: #+JMsingle }** - Enables or disables the use of
   single-mapped RWX memory for JIT code.
 

@@ -136,6 +136,11 @@ static void init_cache_info() {
  * generator uses it to choose between instructions that were introduced
  * there and sequences that work on older processors. */
 bool erts_jit_ppc_isa_3_0 = false;
+
+/* +JDpower8: Generate the code for older processors even when the
+ * processor implements Power ISA 3.0, so that the code can be tested
+ * without a POWER8 machine. */
+int erts_jit_ppc_power8_only = 0;
 #endif
 
 /* Finds out what the processor is capable of, and exits the emulator if it
@@ -161,7 +166,8 @@ static void check_cpu_requirements() {
                   "interpreter instead.\n");
     }
 
-    erts_jit_ppc_isa_3_0 = (hwcap2 & PPC_FEATURE2_ARCH_3_00) != 0;
+    erts_jit_ppc_isa_3_0 =
+            (hwcap2 & PPC_FEATURE2_ARCH_3_00) != 0 && !erts_jit_ppc_power8_only;
 #endif
 }
 
