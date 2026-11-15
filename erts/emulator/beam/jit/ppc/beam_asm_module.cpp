@@ -604,23 +604,35 @@ void BeamModuleAssembler::emit_int_code_end() {
      * Since the table is potentially very large, we'll emit all stubs that are
      * due within it so we won't have to check on every iteration. */
     mark_unreachable();
-    flush_pending_stubs(_dispatchTable.size() * DISPATCH_THUNK_SIZE +
+    flush_pending_stubs(_dispatchTable.size() * dispatch_thunk_size() +
                         dispUnknown);
 
     for (auto pair : _dispatchTable) {
-        Label pointer = a.new_label();
-
         bind_veneer_target(pair.second);
 
         /* The address is loaded into SUPER_TMP, which is where a C function
          * expects to find its own address when called through a pointer. */
-        a.lnia(SUPER_TMP);
-        a.ld(SUPER_TMP, SUPER_TMP, pointer);
-        a.mtctr(SUPER_TMP);
-        a.bctr();
+        if (erts_jit_ppc_isa_3_0) {
+            Label pointer = a.new_label();
 
-        a.bind(pointer);
-        a.embed_uint64((Uint64)pair.first);
+            a.lnia(SUPER_TMP);
+            a.ld(SUPER_TMP, SUPER_TMP, pointer);
+            a.mtctr(SUPER_TMP);
+            a.bctr();
+
+            a.bind(pointer);
+            a.embed_uint64((Uint64)pair.first);
+        } else {
+            /* Finding out where we are takes several instructions and the
+             * link register, which holds the return address when we get
+             * here. The address is known, so we load it as a constant
+             * instead.
+             *
+             * `is_line_breakpoint_trampoline` relies on this sequence. */
+            mov_imm64_fixed(SUPER_TMP, (Uint64)pair.first);
+            a.mtctr(SUPER_TMP);
+            a.bctr();
+        }
     }
 
     mark_unreachable();

@@ -760,6 +760,18 @@ protected:
         mov_imm64(to, (Sint64)value);
     }
 
+    /* Loads a 64-bit value with a sequence of instructions that is the same
+     * for all values, so that code that inspects it can find the value. */
+    void mov_imm64_fixed(ppc::Gp to, Uint64 value) {
+        ASSERT(to != LR_TMP);
+
+        a.lis(to, imm((Sint16)(value >> 48)));
+        a.ori(to, to, imm((value >> 32) & 0xFFFF));
+        a.sldi(to, to, 32);
+        a.oris(to, to, imm((value >> 16) & 0xFFFF));
+        a.ori(to, to, imm(value & 0xFFFF));
+    }
+
     void mov_imm(ppc::Gp to, std::nullptr_t value) {
         (void)value;
         mov_imm64(to, 0);
@@ -1096,9 +1108,15 @@ class BeamModuleAssembler : public BeamAssembler,
     std::unordered_map<void (*)(), Label> _dispatchTable;
 
     /* Size of an entry in the dispatch table: four instructions followed by
-     * the address of the fragment. */
-    static constexpr size_t DISPATCH_THUNK_SIZE =
-            sizeof(Uint32[4]) + sizeof(UWord);
+     * the address of the fragment on POWER9, and seven instructions on older
+     * processors. */
+    static size_t dispatch_thunk_size() {
+        if (erts_jit_ppc_isa_3_0) {
+            return sizeof(Uint32[4]) + sizeof(UWord);
+        }
+
+        return sizeof(Uint32[7]);
+    }
 
     RegisterCache<16, ppc::Mem, ppc::Gp> reg_cache =
             RegisterCache<16, ppc::Mem, ppc::Gp>(scheduler_registers, E, {});
