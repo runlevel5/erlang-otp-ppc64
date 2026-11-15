@@ -48,7 +48,6 @@ my @beam_global_funcs = qw(
     catch_end_shared
     call_nif_early
     call_nif_shared
-    check_float_error
     construct_utf8_shared
     debug_bp
     dispatch_bif
@@ -58,6 +57,7 @@ my @beam_global_funcs = qw(
     dispatch_save_calls_fun
     export_trampoline
     fconv_shared
+    float_error_shared
     get_sint64_shared
     handle_and_error
     handle_call_fun_error
