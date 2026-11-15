@@ -3133,18 +3133,28 @@ AS_IF([test ${enable_jit} != no],
                AC_MSG_ERROR([JIT on big-endian PowerPC requires the ELFv2 ABI])
              else
                enable_jit=no
+               AC_MSG_WARN([JIT disabled as the ELFv2 ABI is not used])
              fi
-           elif test ${enable_jit} = yes; then
-             # The PPC64 JIT is not ready for big-endian systems, so it is
-             # only enabled there when explicitly asked for.
-             JIT_ARCH=ppc
            else
-             enable_jit=no
+             case "$OPSYS" in
+                linux)
+                  JIT_ARCH=ppc
+                ;;
+                *)
+                  # The PPC64 JIT has only been tested on Linux, so it is
+                  # only enabled on other systems when explicitly asked for.
+                  if test ${enable_jit} = yes; then
+                    JIT_ARCH=ppc
+                  else
+                    enable_jit=no
+                  fi
+                ;;
+             esac
            fi
            ;;
         *)
            if test ${enable_jit} = yes; then
-             AC_MSG_ERROR([JIT only works on x86 64-bit, ARM 64-bit and little-endian PowerPC 64-bit])
+             AC_MSG_ERROR([JIT only works on x86 64-bit, ARM 64-bit and PowerPC 64-bit])
            else
              enable_jit=no
              AC_MSG_WARN([JIT disabled due to lack to support on $ARCH-$OPSYS])
