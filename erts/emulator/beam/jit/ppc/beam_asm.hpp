@@ -826,25 +826,88 @@ protected:
         a.embed_uint32(code);
     }
 
+    /* Sets `to` to an address near this sequence, and returns how far the
+     * instruction that follows the sequence is from that address.
+     *
+     * POWER9 has an instruction that provides the address of the instruction
+     * that follows it. Older processors have to branch-and-link to the next
+     * instruction and read the link register, which the form of `bcl` used
+     * here does without disturbing the prediction of returns.
+     *
+     * That overwrites the link register. It is free in module code once the
+     * prologue of the function has saved it on the stack, and wherever it
+     * still holds a return address `lr_save` must name a register that it
+     * can be kept in. */
+    ssize_t emit_pc_unadjusted(ppc::Gp to, const ppc::Gp *lr_save = nullptr) {
+        ssize_t offset;
+
+        if (erts_jit_ppc_isa_3_0) {
+            a.lnia(to);
+            return 0;
+        }
+
+        Label next = a.new_label();
+
+        if (lr_save) {
+            ASSERT(*lr_save != to);
+            a.mflr(*lr_save);
+        }
+
+        a.bcl(imm(20), imm(31), next);
+        a.bind(next);
+        offset = a.offset();
+        a.mflr(to);
+
+        if (lr_save) {
+            a.mtlr(*lr_save);
+        }
+
+        return a.offset() - offset;
+    }
+
+    /* Sets `to` to the address of the instruction that follows this
+     * sequence, see `emit_pc_unadjusted`. */
+    void emit_pc(ppc::Gp to) {
+        ssize_t distance = emit_pc_unadjusted(to);
+
+        ASSERT(to != LR_TMP);
+
+        if (distance != 0) {
+            /* The adjustment is itself part of the sequence. */
+            a.addi(to, to, imm(distance + sizeof(Uint32)));
+        }
+    }
+
+    void emit_pc(ppc::Gp to, ppc::Gp lr_save) {
+        ssize_t distance = emit_pc_unadjusted(to, &lr_save);
+
+        ASSERT(to != LR_TMP);
+
+        if (distance != 0) {
+            /* The adjustment is itself part of the sequence. */
+            a.addi(to, to, imm(distance + sizeof(Uint32)));
+        }
+    }
+
     /* Loads the address of `label`.
      *
-     * The first instruction provides the address of the one that follows it.
-     * When the label is bound we know how far away it is and can add the
-     * distance, whatever it is. Otherwise the second instruction adds its own
-     * distance to the label, which must then be bound within 32KB of it. */
+     * We start with the address of an instruction in this sequence. When the
+     * label is bound we know how far away it is and can add the distance,
+     * whatever it is. Otherwise an instruction adds its own distance to the
+     * label, which must then be bound within 32KB of it. */
     void emit_adr(ppc::Gp to, const Label &label) {
         ASSERT(to != LR_TMP);
 
-        a.lnia(to);
-
         if (code.is_label_bound(label)) {
+            ssize_t behind = emit_pc_unadjusted(to);
             Sint64 distance = (Sint64)code.label_offset_from_base(label) -
-                              (Sint64)a.offset();
+                              ((Sint64)a.offset() - behind);
 
             if (distance != 0) {
                 add(to, to, distance);
             }
         } else {
+            emit_pc(to);
             a.addi(to, to, label);
         }
     }
@@ -1132,8 +1195,8 @@ class BeamModuleAssembler : public BeamAssembler,
     /* Embeds the address of `label` and returns a label for where it is
      * stored.
      *
-     * This must be used _IMMEDIATELY BEFORE_ the pair of instructions that
-     * loads the address, see `embed_constant` for details. */
+     * This must be used _IMMEDIATELY BEFORE_ the instructions that load the
+     * address, see `embed_constant` for details. */
     Label embed_label(const Label &label, enum Displacement disp);
 
 public:
@@ -1483,9 +1546,9 @@ protected:
      *
      * The constant is addressed relative to the instruction that loads it,
      * and that instruction needs the address of itself in a register. The
-     * label must therefore be used by an `lnia` instruction followed by a
-     * load, as `load_constant` does, and this must be used _IMMEDIATELY
-     * BEFORE_ that pair of instructions. */
+     * label must therefore be used by a load that follows `emit_pc`, as
+     * `load_constant` does, and this must be used _IMMEDIATELY BEFORE_ the
+     * load, or the `lnia` instruction that provides its address. */
     Label embed_constant(const ArgVal &value, enum Displacement disp);
 
     /* Convenience wrapper for embedding raw pointers or immediates. */
@@ -1499,11 +1562,21 @@ protected:
 
     /* Loads an embedded constant into `to`. */
     void load_constant(ppc::Gp to, const ArgVal &value) {
+        Label anchor;
+
         ASSERT(to != LR_TMP);
 
-        Label anchor = embed_constant(value, disp32K);
+        /* The constant must be embedded right before the instructions that
+         * depend on how far away it is, which is the load alone when it
+         * takes several instructions to get our own address. */
+        if (erts_jit_ppc_isa_3_0) {
+            anchor = embed_constant(value, disp32K);
+            emit_pc(to);
+        } else {
+            emit_pc(to);
+            anchor = embed_constant(value, disp32K);
+        }
 
-        a.lnia(to);
         a.ld(to, to, anchor);
     }
 

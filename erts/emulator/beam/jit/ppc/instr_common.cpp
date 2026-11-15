@@ -2922,11 +2922,13 @@ void BeamModuleAssembler::emit_raw_raise() {
     mov_imm(XREG0, am_badarg);
 }
 
-/* The reduction test of a function consists of the two instructions that
- * load the address of the function, the store that only exists when
- * allocation tags are enabled, the decrement, and the branch. */
+/* The reduction test of a function consists of the instructions that load
+ * the address of the function, which are two on POWER9 and three on older
+ * processors, the store that only exists when allocation tags are enabled,
+ * the decrement, and the branch. */
 #define TEST_YIELD_RETURN_OFFSET                                               \
     (BEAM_ASM_FUNC_PROLOGUE_SIZE + sizeof(Uint32[4]) +                         \
+     (erts_jit_ppc_isa_3_0 ? 0 : sizeof(Uint32)) +                             \
      (erts_alcu_enable_code_atags ? sizeof(Uint32) : 0))
 
 /* ARG3 = current_label */

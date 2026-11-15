@@ -151,7 +151,7 @@ void BeamGlobalAssembler::emit_process_main() {
             /* The fragment may be too far away for its address to be
              * computed, so we load it from a word that follows this
              * block. */
-            a.lnia(TMP1);
+            emit_pc(TMP1, LR_TMP);
             a.ld(TMP1, TMP1, process_exit_ptr);
             a.std(TMP1, ppc::Mem(c_p, offsetof(Process, i)));
             a.li(LR_TMP, imm(0));

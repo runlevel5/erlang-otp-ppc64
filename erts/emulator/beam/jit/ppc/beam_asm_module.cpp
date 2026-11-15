@@ -113,9 +113,17 @@ void BeamModuleAssembler::embed_vararg_rodata(const Span<const ArgVal> &args,
         emit_adr(reg, data);
         a.b(next);
     } else {
-        Label anchor = embed_label(data, disp32K);
+        Label anchor;
 
-        a.lnia(reg);
+        /* See `load_constant`. */
+        if (erts_jit_ppc_isa_3_0) {
+            anchor = embed_label(data, disp32K);
+            emit_pc(reg);
+        } else {
+            emit_pc(reg);
+            anchor = embed_label(data, disp32K);
+        }
+
         a.ld(reg, reg, anchor);
 
         a.section(rodata);
