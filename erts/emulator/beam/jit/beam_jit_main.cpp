@@ -137,10 +137,10 @@ static void init_cache_info() {
  * there and sequences that work on older processors. */
 bool erts_jit_ppc_isa_3_0 = false;
 
-/* +JDpower8: Generate the code for older processors even when the
- * processor implements Power ISA 3.0, so that the code can be tested
- * without a POWER8 machine. */
-int erts_jit_ppc_power8_only = 0;
+/* +JDpowerisa: The Power ISA level to generate code for. A level that is
+ * lower than what the processor implements makes it possible to test the
+ * code for older processors without having one. */
+enum erts_jit_ppc_isa_level erts_jit_ppc_isa = ERTS_JIT_PPC_ISA_AUTO;
 #endif
 
 /* Finds out what the processor is capable of, and exits the emulator if it
@@ -166,8 +166,19 @@ static void check_cpu_requirements() {
                   "interpreter instead.\n");
     }
 
-    erts_jit_ppc_isa_3_0 =
-            (hwcap2 & PPC_FEATURE2_ARCH_3_00) != 0 && !erts_jit_ppc_power8_only;
+    if (erts_jit_ppc_isa == ERTS_JIT_PPC_ISA_3_0 &&
+        !(hwcap2 & PPC_FEATURE2_ARCH_3_00)) {
+        erts_exit(ERTS_ERROR_EXIT,
+                  "+JDpowerisa 3.0 was given, but the processor does not "
+                  "implement Power ISA 3.0 (POWER9).\n");
+    }
+
+    erts_jit_ppc_isa_3_0 = (hwcap2 & PPC_FEATURE2_ARCH_3_00) != 0 &&
+                           erts_jit_ppc_isa != ERTS_JIT_PPC_ISA_2_07;
+#elif defined(__powerpc64__)
+    /* We do not know how to ask this system what the processor implements,
+     * so we only use Power ISA 3.0 when told that it is there. */
+    erts_jit_ppc_isa_3_0 = erts_jit_ppc_isa == ERTS_JIT_PPC_ISA_3_0;
 #endif
 }
 

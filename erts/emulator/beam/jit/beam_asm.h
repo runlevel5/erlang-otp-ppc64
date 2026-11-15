@@ -52,7 +52,13 @@ extern char etrs_jit_perf_directory[MAXPATHLEN];
 #    endif
 extern int erts_jit_single_map;
 #    if defined(__powerpc64__)
-extern int erts_jit_ppc_power8_only;
+/* The Power ISA level to generate code for, see +JDpowerisa. */
+enum erts_jit_ppc_isa_level {
+    ERTS_JIT_PPC_ISA_AUTO,
+    ERTS_JIT_PPC_ISA_2_07,
+    ERTS_JIT_PPC_ISA_3_0
+};
+extern enum erts_jit_ppc_isa_level erts_jit_ppc_isa;
 #    endif
 
 void beamasm_init(void);

@@ -520,7 +520,7 @@ exits with an explanation if it is started on an older processor; use
 
 The JIT finds out at start-up whether the processor implements Power ISA 3.0
 (POWER9) and uses its instructions if it does, so the same build runs on all
-supported processors. Use `erl +JDpower8 true` to get the code for POWER8 on
+supported processors. Use `erl +JDpowerisa 2.07` to get the code for POWER8 on
 a newer processor, for example to test it.
 
 If you run `./configure --enable-jit` configure will abort when it discovers that
