@@ -523,6 +523,14 @@ void BeamGlobalAssembler::emit_call_light_bif_shared() {
             a.crorc(ppc::cr1.gt(), ppc::cr1.gt(), ppc::cr0.eq());
             a.cror(ppc::cr1.gt(), ppc::cr1.gt(), ppc::cr6.lt());
             a.bgt(ppc::cr1, gc_after_bif_call);
+
+            /* No GC is needed, so a saved live_hf_end marker is no longer
+             * valid. Clear it unless it is already cleared. */
+            a.ld(TMP1, ppc::Mem(c_p, offsetof(Process, live_hf_end)));
+            mov_imm(TMP2, (UWord)ERTS_INVALID_HFRAG_PTR);
+            a.cmpd(TMP1, TMP2);
+            a.beq(check_bif_return);
+            a.std(TMP2, ppc::Mem(c_p, offsetof(Process, live_hf_end)));
         }
 
         a.bind(check_bif_return);
