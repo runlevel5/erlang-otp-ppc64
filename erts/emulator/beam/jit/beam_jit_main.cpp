@@ -142,6 +142,9 @@ bool erts_jit_ppc_isa_3_0 = false;
  * lacks something that the generated code cannot do without. */
 static void check_cpu_requirements() {
 #if defined(__powerpc64__) && defined(__linux__)
+#    ifndef PPC_FEATURE2_ARCH_2_07
+#        define PPC_FEATURE2_ARCH_2_07 0x80000000
+#    endif
 #    ifndef PPC_FEATURE2_ARCH_3_00
 #        define PPC_FEATURE2_ARCH_3_00 0x00800000
 #    endif
@@ -149,11 +152,11 @@ static void check_cpu_requirements() {
     unsigned long hwcap2 = getauxval(AT_HWCAP2);
 
     /* The PPC64 JIT uses instructions that were introduced in Power ISA
-     * 3.0, `addpcis` among them, without testing whether they exist. */
-    if (!(hwcap2 & PPC_FEATURE2_ARCH_3_00)) {
+     * 2.06 and 2.07 without testing whether they exist. */
+    if (!(hwcap2 & PPC_FEATURE2_ARCH_2_07)) {
         erts_exit(ERTS_ERROR_EXIT,
                   "The JIT requires a processor that implements Power ISA "
-                  "3.0 (POWER9) or later.\n"
+                  "2.07 (POWER8) or later.\n"
                   "Start the emulator with '-emu_flavor emu' to use the "
                   "interpreter instead.\n");
     }

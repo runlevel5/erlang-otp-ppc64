@@ -512,9 +512,13 @@ JIT.
 * You do not have a C++ compiler that supports C++-17
 
 On PowerPC the JIT is only enabled by default on Linux, and it requires a
-processor that implements Power ISA 3.0 (POWER9) or later. The emulator
+processor that implements Power ISA 2.07 (POWER8) or later. The emulator
 exits with an explanation if it is started on an older processor; use
 `erl -emu_flavor emu` to run the interpreter on such a machine.
+
+The JIT finds out at start-up whether the processor implements Power ISA 3.0
+(POWER9) and uses its instructions if it does, so the same build runs on all
+supported processors.
 
 If you run `./configure --enable-jit` configure will abort when it discovers that
 your system cannot build the JIT.
