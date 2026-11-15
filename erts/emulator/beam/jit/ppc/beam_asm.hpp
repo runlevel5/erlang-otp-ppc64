@@ -51,6 +51,10 @@ extern "C"
 
 using namespace asmjit;
 
+/* Set when the processor implements Power ISA 3.0 (POWER9), see
+ * `beam_jit_main.cpp`. */
+extern bool erts_jit_ppc_isa_3_0;
+
 #define ERTS_CCONV_ERTS
 #define ERTS_CCONV_JIT
 
