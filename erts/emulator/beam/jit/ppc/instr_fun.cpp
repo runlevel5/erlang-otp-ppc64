@@ -330,8 +330,13 @@ void BeamModuleAssembler::emit_i_apply_fun_last(const ArgWord &Deallocate) {
 
 void BeamModuleAssembler::emit_i_apply_fun_only() {
     fragment_call(ga->get_apply_fun_shared());
+
+    /* This must be done before the return address is restored, as it may
+     * overwrite the link register. */
+    auto target = emit_call_fun();
+
     emit_leave_erlang_frame();
-    a.mtctr(emit_call_fun());
+    a.mtctr(target);
     a.bctr();
 }
 

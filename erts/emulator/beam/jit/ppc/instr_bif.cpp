@@ -994,7 +994,8 @@ void BeamGlobalAssembler::emit_call_nif_yield_helper() {
  * position-independent.
  *
  * It must also fit in the `call_nif` field of ErtsNifBeamStub, which leaves
- * room for no more than 24 bytes after the three words of data. */
+ * room for no more than `BEAM_ASM_CALL_NIF_SIZE - BEAM_ASM_NFUNC_SIZE` bytes
+ * for the three words of data and what follows them. */
 void BeamModuleAssembler::emit_call_nif(const ArgWord &Func,
                                         const ArgWord &NifMod,
                                         const ArgWord &DirtyFunc) {
@@ -1036,14 +1037,32 @@ void BeamModuleAssembler::emit_call_nif(const ArgWord &Func,
          * which holds the address of the second instruction below. That
          * saves the instructions it would take to compute it here, which
          * there is no room for. */
-        a.lnia(SUPER_TMP);
-        a.ld(TMP1, SUPER_TMP, helper);
-        a.mtctr(TMP1);
-        a.bctr();
+        if (erts_jit_ppc_isa_3_0) {
+            a.lnia(SUPER_TMP);
+            a.ld(TMP1, SUPER_TMP, helper);
+            a.mtctr(TMP1);
+            a.bctr();
+        } else {
+            Label next = a.new_label();
+
+            /* The link register is free, as the prologue has saved it. */
+            a.bcl(imm(20), imm(31), next);
+            a.bind(next);
+            a.mflr(SUPER_TMP);
+            a.ld(TMP1, ppc::Mem(SUPER_TMP, sizeof(Uint32[4])));
+            a.mtctr(TMP1);
+            a.bctr();
+
+            ASSERT(a.offset() - code.label_offset_from_base(next) ==
+                   sizeof(Uint32[4]));
+        }
 
         a.bind(helper);
         a.embed_uint64((Uint64)ga->get_call_nif_yield_helper());
     }
+
+    ASSERT((a.offset() - code.label_offset_from_base(current_label)) <=
+           BEAM_ASM_CALL_NIF_SIZE);
 }
 
 static ErtsCodePtr get_on_load_address(Process *c_p, Eterm module) {

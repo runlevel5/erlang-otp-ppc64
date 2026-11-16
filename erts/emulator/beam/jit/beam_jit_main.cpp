@@ -131,23 +131,54 @@ static void init_cache_info() {
 #endif
 }
 
-/* Exits the emulator if the processor lacks something that the generated
- * code cannot do without. */
+#if defined(__powerpc64__)
+/* Set when the processor implements Power ISA 3.0 (POWER9). The code
+ * generator uses it to choose between instructions that were introduced
+ * there and sequences that work on older processors. */
+bool erts_jit_ppc_isa_3_0 = false;
+
+/* +JDpowerisa: The Power ISA level to generate code for. A level that is
+ * lower than what the processor implements makes it possible to test the
+ * code for older processors without having one. */
+enum erts_jit_ppc_isa_level erts_jit_ppc_isa = ERTS_JIT_PPC_ISA_AUTO;
+#endif
+
+/* Finds out what the processor is capable of, and exits the emulator if it
+ * lacks something that the generated code cannot do without. */
 static void check_cpu_requirements() {
 #if defined(__powerpc64__) && defined(__linux__)
+#    ifndef PPC_FEATURE2_ARCH_2_07
+#        define PPC_FEATURE2_ARCH_2_07 0x80000000
+#    endif
 #    ifndef PPC_FEATURE2_ARCH_3_00
 #        define PPC_FEATURE2_ARCH_3_00 0x00800000
 #    endif
 
+    unsigned long hwcap2 = getauxval(AT_HWCAP2);
+
     /* The PPC64 JIT uses instructions that were introduced in Power ISA
-     * 3.0, `addpcis` among them, without testing whether they exist. */
-    if (!(getauxval(AT_HWCAP2) & PPC_FEATURE2_ARCH_3_00)) {
+     * 2.06 and 2.07 without testing whether they exist. */
+    if (!(hwcap2 & PPC_FEATURE2_ARCH_2_07)) {
         erts_exit(ERTS_ERROR_EXIT,
                   "The JIT requires a processor that implements Power ISA "
-                  "3.0 (POWER9) or later.\n"
+                  "2.07 (POWER8) or later.\n"
                   "Start the emulator with '-emu_flavor emu' to use the "
                   "interpreter instead.\n");
     }
+
+    if (erts_jit_ppc_isa == ERTS_JIT_PPC_ISA_3_0 &&
+        !(hwcap2 & PPC_FEATURE2_ARCH_3_00)) {
+        erts_exit(ERTS_ERROR_EXIT,
+                  "+JDpowerisa 3.0 was given, but the processor does not "
+                  "implement Power ISA 3.0 (POWER9).\n");
+    }
+
+    erts_jit_ppc_isa_3_0 = (hwcap2 & PPC_FEATURE2_ARCH_3_00) != 0 &&
+                           erts_jit_ppc_isa != ERTS_JIT_PPC_ISA_2_07;
+#elif defined(__powerpc64__)
+    /* We do not know how to ask this system what the processor implements,
+     * so we only use Power ISA 3.0 when told that it is there. */
+    erts_jit_ppc_isa_3_0 = erts_jit_ppc_isa == ERTS_JIT_PPC_ISA_3_0;
 #endif
 }
 

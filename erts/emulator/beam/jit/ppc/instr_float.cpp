@@ -27,26 +27,13 @@ extern "C"
 #include "big.h"
 }
 
-/* Checks whether f0 contains a finite value.
- *
- * Clobbers f1. */
-void BeamGlobalAssembler::emit_check_float_error() {
-    Label error = a.new_label();
-
-    /* Subtracting a value from itself gives zero if it is finite, and NaN
-     * if it is an infinity or NaN. Comparing a NaN is unordered. */
-    a.fsub(ppc::f1, ppc::f0, ppc::f0);
-    a.fcmpu(ppc::cr0, ppc::f1, ppc::f1);
-    a.bso(error);
-    a.blr();
-
-    a.bind(error);
-    {
-        mov_imm(ARG4, 0);
-        mov_imm(TMP1, EXC_BADARITH);
-        a.std(TMP1, ppc::Mem(c_p, offsetof(Process, freason)));
-        a.b(labels[raise_exception]);
-    }
+/* Raises the exception for a floating point operation whose result was not
+ * finite. The link register holds the address of the operation. */
+void BeamGlobalAssembler::emit_float_error_shared() {
+    mov_imm(ARG4, 0);
+    mov_imm(TMP1, EXC_BADARITH);
+    a.std(TMP1, ppc::Mem(c_p, offsetof(Process, freason)));
+    a.b(labels[raise_exception]);
 }
 
 void BeamModuleAssembler::emit_float_instr(uint32_t instId,
@@ -56,10 +43,24 @@ void BeamModuleAssembler::emit_float_instr(uint32_t instId,
     auto lhs = load_source(LHS, ppc::f2);
     auto rhs = load_source(RHS, ppc::f3);
     auto dst = init_destination(Dst, ppc::f4);
+    Label next = a.new_label();
 
-    a.emit(instId, ppc::f0, lhs.reg, rhs.reg);
-    fragment_call(ga->get_check_float_error());
-    a.fmr(dst.reg, ppc::f0);
+    /* The destination can be written before the result has been checked, as
+     * the float registers are not used after an exception. */
+    a.emit(instId, dst.reg, lhs.reg, rhs.reg);
+
+    /* Subtracting a value from itself gives zero if it is finite, and NaN
+     * if it is an infinity or NaN. Comparing a NaN is unordered. */
+    a.fsub(ppc::f0, dst.reg, dst.reg);
+    a.fcmpu(ppc::cr0, ppc::f0, ppc::f0);
+    a.bns(next);
+
+    /* This must be a call, as the exception is raised at the address that
+     * the link register holds. */
+    fragment_call(ga->get_float_error_shared());
+
+    a.bind(next);
+
     flush_var(dst);
 }
 

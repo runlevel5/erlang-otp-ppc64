@@ -157,11 +157,13 @@ namespace InstDB {
   X(Mcrf        , "mcrf"       , 0x4C000000u, BfBfa       )  \
   X(Mcrxrx      , "mcrxrx"     , 0x7C000480u, Bf          )  \
   X(Mfcr        , "mfcr"       , 0x7C000026u, Rt          )  \
+  X(Mffprd      , "mffprd"     , 0x7C000066u, RaFs        )  \
   X(Mfspr       , "mfspr"      , 0x7C0002A6u, RtSpr       )  \
   X(Modsd       , "modsd"      , 0x7C000612u, RtRaRb      )  \
   X(Modsw       , "modsw"      , 0x7C000616u, RtRaRb      )  \
   X(Modud       , "modud"      , 0x7C000212u, RtRaRb      )  \
   X(Moduw       , "moduw"      , 0x7C000216u, RtRaRb      )  \
+  X(Mtfprd      , "mtfprd"     , 0x7C000166u, FtRa        )  \
   X(Mtspr       , "mtspr"      , 0x7C0003A6u, SprRs       )  \
   X(Mulhd       , "mulhd"      , 0x7C000092u, RtRaRb      )  \
   X(Mulhd_rc    , "mulhd."     , 0x7C000093u, RtRaRb      )  \

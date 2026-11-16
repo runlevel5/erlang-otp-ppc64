@@ -23,7 +23,7 @@
 # BeamAsm, the Erlang JIT
 
 BeamAsm provides load-time conversion of Erlang BEAM instructions into
-native code on x86-64, aarch64 and little-endian ppc64. This allows the loader to eliminate any
+native code on x86-64, aarch64 and ppc64. This allows the loader to eliminate any
 instruction dispatching overhead and also specialize each instruction on their
 argument types.
 
@@ -508,13 +508,20 @@ You will see a banner containing `[jit]` shell when you start. You can also use
 There are two major reasons why when building Erlang/OTP you would not get the
 JIT.
 
-* You are not building a 64-bit emulator for x86, ARM or little-endian PowerPC
+* You are not building a 64-bit emulator for x86, ARM or PowerPC
 * You do not have a C++ compiler that supports C++-17
 
-On PowerPC the JIT is only enabled by default on Linux, and it requires a
-processor that implements Power ISA 3.0 (POWER9) or later. The emulator
+On PowerPC the JIT is only enabled by default on Linux, on both little-endian
+and big-endian systems. A big-endian system must use the ELFv2 ABI; the JIT
+cannot be built for the older ABI. The JIT requires a
+processor that implements Power ISA 2.07 (POWER8) or later. The emulator
 exits with an explanation if it is started on an older processor; use
 `erl -emu_flavor emu` to run the interpreter on such a machine.
+
+The JIT finds out at start-up whether the processor implements Power ISA 3.0
+(POWER9) and uses its instructions if it does, so the same build runs on all
+supported processors. Use `erl +JDpowerisa 2.07` to get the code for POWER8 on
+a newer processor, for example to test it.
 
 If you run `./configure --enable-jit` configure will abort when it discovers that
 your system cannot build the JIT.

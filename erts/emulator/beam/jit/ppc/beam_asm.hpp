@@ -51,6 +51,10 @@ extern "C"
 
 using namespace asmjit;
 
+/* Set when the processor implements Power ISA 3.0 (POWER9), see
+ * `beam_jit_main.cpp`. */
+extern bool erts_jit_ppc_isa_3_0;
+
 #define ERTS_CCONV_ERTS
 #define ERTS_CCONV_JIT
 
@@ -210,6 +214,14 @@ protected:
         ASSERT((offset & (sizeof(Eterm) - 1)) == 0);
         ASSERT(offset >= 0 && offset <= MAX_DISPLACEMENT);
         return ppc::Mem(scheduler_registers, offset);
+    }
+
+    /* Returns the number of a floating point register.
+     *
+     * The loader hands us the number multiplied by the size of a register,
+     * as the interpreter wants it. */
+    static constexpr int getFIndex(const ArgVal &arg) {
+        return arg.as<ArgFRegister>().get() / sizeof(FloatDef);
     }
 
     constexpr ppc::Mem getFRef(int index, size_t size = sizeof(UWord)) const {
@@ -389,7 +401,7 @@ protected:
             return getYRef(arg.as<ArgYRegister>().get());
         }
 
-        return getFRef(arg.as<ArgFRegister>().get());
+        return getFRef(getFIndex(arg));
     }
 
     /* Returns the current code address for the `Export` or `ErlFunEntry` in
@@ -643,12 +655,10 @@ protected:
 
     /* Converts the signed integer in `src` to a double.
      *
-     * The value has to go through memory, as there is no instruction that
-     * moves a general purpose register to a floating point register on all
-     * the processors we support. Clobbers TMP_MEM5q. */
+     * The move between the general purpose and the floating point register
+     * was introduced in Power ISA 2.07, which the JIT requires. */
     void emit_int_to_double(ppc::Vec dst, ppc::Gp src) {
-        a.std(src, TMP_MEM5q);
-        a.lfd(dst, TMP_MEM5q);
+        a.mtfprd(dst, src);
         a.fcfid(dst, dst);
     }
 
@@ -756,6 +766,18 @@ protected:
         mov_imm64(to, (Sint64)value);
     }
 
+    /* Loads a 64-bit value with a sequence of instructions that is the same
+     * for all values, so that code that inspects it can find the value. */
+    void mov_imm64_fixed(ppc::Gp to, Uint64 value) {
+        ASSERT(to != LR_TMP);
+
+        a.lis(to, imm((Sint16)(value >> 48)));
+        a.ori(to, to, imm((value >> 32) & 0xFFFF));
+        a.sldi(to, to, 32);
+        a.oris(to, to, imm((value >> 16) & 0xFFFF));
+        a.ori(to, to, imm(value & 0xFFFF));
+    }
+
     void mov_imm(ppc::Gp to, std::nullptr_t value) {
         (void)value;
         mov_imm64(to, 0);
@@ -822,25 +844,88 @@ protected:
         a.embed_uint32(code);
     }
 
+    /* Sets `to` to an address near this sequence, and returns how far the
+     * instruction that follows the sequence is from that address.
+     *
+     * POWER9 has an instruction that provides the address of the instruction
+     * that follows it. Older processors have to branch-and-link to the next
+     * instruction and read the link register, which the form of `bcl` used
+     * here does without disturbing the prediction of returns.
+     *
+     * That overwrites the link register. It is free in module code once the
+     * prologue of the function has saved it on the stack, and wherever it
+     * still holds a return address `lr_save` must name a register that it
+     * can be kept in. */
+    ssize_t emit_pc_unadjusted(ppc::Gp to, const ppc::Gp *lr_save = nullptr) {
+        ssize_t offset;
+
+        if (erts_jit_ppc_isa_3_0) {
+            a.lnia(to);
+            return 0;
+        }
+
+        Label next = a.new_label();
+
+        if (lr_save) {
+            ASSERT(*lr_save != to);
+            a.mflr(*lr_save);
+        }
+
+        a.bcl(imm(20), imm(31), next);
+        a.bind(next);
+        offset = a.offset();
+        a.mflr(to);
+
+        if (lr_save) {
+            a.mtlr(*lr_save);
+        }
+
+        return a.offset() - offset;
+    }
+
+    /* Sets `to` to the address of the instruction that follows this
+     * sequence, see `emit_pc_unadjusted`. */
+    void emit_pc(ppc::Gp to) {
+        ssize_t distance = emit_pc_unadjusted(to);
+
+        ASSERT(to != LR_TMP);
+
+        if (distance != 0) {
+            /* The adjustment is itself part of the sequence. */
+            a.addi(to, to, imm(distance + sizeof(Uint32)));
+        }
+    }
+
+    void emit_pc(ppc::Gp to, ppc::Gp lr_save) {
+        ssize_t distance = emit_pc_unadjusted(to, &lr_save);
+
+        ASSERT(to != LR_TMP);
+
+        if (distance != 0) {
+            /* The adjustment is itself part of the sequence. */
+            a.addi(to, to, imm(distance + sizeof(Uint32)));
+        }
+    }
+
     /* Loads the address of `label`.
      *
-     * The first instruction provides the address of the one that follows it.
-     * When the label is bound we know how far away it is and can add the
-     * distance, whatever it is. Otherwise the second instruction adds its own
-     * distance to the label, which must then be bound within 32KB of it. */
+     * We start with the address of an instruction in this sequence. When the
+     * label is bound we know how far away it is and can add the distance,
+     * whatever it is. Otherwise an instruction adds its own distance to the
+     * label, which must then be bound within 32KB of it. */
     void emit_adr(ppc::Gp to, const Label &label) {
         ASSERT(to != LR_TMP);
 
-        a.lnia(to);
-
         if (code.is_label_bound(label)) {
+            ssize_t behind = emit_pc_unadjusted(to);
             Sint64 distance = (Sint64)code.label_offset_from_base(label) -
-                              (Sint64)a.offset();
+                              ((Sint64)a.offset() - behind);
 
             if (distance != 0) {
                 add(to, to, distance);
             }
         } else {
+            emit_pc(to);
             a.addi(to, to, label);
         }
     }
@@ -1029,9 +1114,15 @@ class BeamModuleAssembler : public BeamAssembler,
     std::unordered_map<void (*)(), Label> _dispatchTable;
 
     /* Size of an entry in the dispatch table: four instructions followed by
-     * the address of the fragment. */
-    static constexpr size_t DISPATCH_THUNK_SIZE =
-            sizeof(Uint32[4]) + sizeof(UWord);
+     * the address of the fragment on POWER9, and seven instructions on older
+     * processors. */
+    static size_t dispatch_thunk_size() {
+        if (erts_jit_ppc_isa_3_0) {
+            return sizeof(Uint32[4]) + sizeof(UWord);
+        }
+
+        return sizeof(Uint32[7]);
+    }
 
     RegisterCache<16, ppc::Mem, ppc::Gp> reg_cache =
             RegisterCache<16, ppc::Mem, ppc::Gp>(scheduler_registers, E, {});
@@ -1128,8 +1219,8 @@ class BeamModuleAssembler : public BeamAssembler,
     /* Embeds the address of `label` and returns a label for where it is
      * stored.
      *
-     * This must be used _IMMEDIATELY BEFORE_ the pair of instructions that
-     * loads the address, see `embed_constant` for details. */
+     * This must be used _IMMEDIATELY BEFORE_ the instructions that load the
+     * address, see `embed_constant` for details. */
     Label embed_label(const Label &label, enum Displacement disp);
 
 public:
@@ -1479,9 +1570,9 @@ protected:
      *
      * The constant is addressed relative to the instruction that loads it,
      * and that instruction needs the address of itself in a register. The
-     * label must therefore be used by an `lnia` instruction followed by a
-     * load, as `load_constant` does, and this must be used _IMMEDIATELY
-     * BEFORE_ that pair of instructions. */
+     * label must therefore be used by a load that follows `emit_pc`, as
+     * `load_constant` does, and this must be used _IMMEDIATELY BEFORE_ the
+     * load, or the `lnia` instruction that provides its address. */
     Label embed_constant(const ArgVal &value, enum Displacement disp);
 
     /* Convenience wrapper for embedding raw pointers or immediates. */
@@ -1495,11 +1586,21 @@ protected:
 
     /* Loads an embedded constant into `to`. */
     void load_constant(ppc::Gp to, const ArgVal &value) {
+        Label anchor;
+
         ASSERT(to != LR_TMP);
 
-        Label anchor = embed_constant(value, disp32K);
+        /* The constant must be embedded right before the instructions that
+         * depend on how far away it is, which is the load alone when it
+         * takes several instructions to get our own address. */
+        if (erts_jit_ppc_isa_3_0) {
+            anchor = embed_constant(value, disp32K);
+            emit_pc(to);
+        } else {
+            emit_pc(to);
+            anchor = embed_constant(value, disp32K);
+        }
 
-        a.lnia(to);
         a.ld(to, to, anchor);
     }
 
@@ -1553,7 +1654,7 @@ protected:
         if (arg.isXRegister()) {
             return arg.as<ArgXRegister>().get() < num_register_backed_xregs;
         } else if (arg.isFRegister()) {
-            return arg.as<ArgFRegister>().get() < num_register_backed_fregs;
+            return getFIndex(arg) < num_register_backed_fregs;
         }
 
         return false;
@@ -1581,7 +1682,7 @@ protected:
 
     Variable<ppc::Vec> init_destination(const ArgVal &arg, ppc::Vec tmp) {
         if (isRegisterBacked(arg)) {
-            auto index = arg.as<ArgFRegister>().get();
+            auto index = getFIndex(arg);
             return Variable(register_backed_fregs[index]);
         } else {
             return Variable(tmp, getArgRef(arg));
@@ -1667,7 +1768,7 @@ protected:
 
     Variable<ppc::Vec> load_source(const ArgVal &arg, ppc::Vec tmp) {
         if (isRegisterBacked(arg)) {
-            auto index = arg.as<ArgFRegister>().get();
+            auto index = getFIndex(arg);
             return Variable<ppc::Vec>(register_backed_fregs[index]);
         }
 

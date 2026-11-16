@@ -818,6 +818,40 @@ Error Assembler::_emit(InstId inst_id, const Operand_& o0, const Operand_& o1, c
       break;
     }
 
+    case InstDB::kEncodingFtRa: {
+      if (isign4 == ENC_OPS2(Reg, Reg)) {
+        if (!is_fp64(o0) || !is_gp64(o1)) {
+          goto InvalidInstruction;
+        }
+
+        if (!is_phys_id(o0.id(), o1.id())) {
+          goto InvalidPhysId;
+        }
+
+        opcode |= (o0.id() << 21) | (o1.id() << 16);
+        goto EmitOp;
+      }
+
+      break;
+    }
+
+    case InstDB::kEncodingRaFs: {
+      if (isign4 == ENC_OPS2(Reg, Reg)) {
+        if (!is_gp64(o0) || !is_fp64(o1)) {
+          goto InvalidInstruction;
+        }
+
+        if (!is_phys_id(o0.id(), o1.id())) {
+          goto InvalidPhysId;
+        }
+
+        opcode |= (o1.id() << 21) | (o0.id() << 16);
+        goto EmitOp;
+      }
+
+      break;
+    }
+
     case InstDB::kEncodingRtRaRbBc: {
       if (isign4 == ENC_OPS4(Reg, Reg, Reg, Imm)) {
         if (!is_gp64(o0) || !is_gp64(o1) || !is_gp64(o2)) {

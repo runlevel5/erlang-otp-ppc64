@@ -51,6 +51,15 @@ extern enum beamasm_perf_flags erts_jit_perf_support;
 extern char etrs_jit_perf_directory[MAXPATHLEN];
 #    endif
 extern int erts_jit_single_map;
+#    if defined(__powerpc64__)
+/* The Power ISA level to generate code for, see +JDpowerisa. */
+enum erts_jit_ppc_isa_level {
+    ERTS_JIT_PPC_ISA_AUTO,
+    ERTS_JIT_PPC_ISA_2_07,
+    ERTS_JIT_PPC_ISA_3_0
+};
+extern enum erts_jit_ppc_isa_level erts_jit_ppc_isa;
+#    endif
 
 void beamasm_init(void);
 void *beamasm_new_assembler(Eterm mod,
@@ -136,6 +145,14 @@ void beamasm_flush_icache(const void *address, size_t size);
 #        define BEAM_ASM_NFUNC_SIZE (BEAM_ASM_FUNC_PROLOGUE_SIZE + 4)
 #    else
 #        define BEAM_ASM_NFUNC_SIZE (BEAM_ASM_FUNC_PROLOGUE_SIZE + 8)
+#    endif
+
+/* Size (in bytes) of a call_nif stub: an ErtsNativeFunc/call_nif prologue,
+ * three words of data, and the code that calls the NIF. */
+#    if defined(__powerpc64__)
+#        define BEAM_ASM_CALL_NIF_SIZE (BEAM_ASM_NFUNC_SIZE + 56)
+#    else
+#        define BEAM_ASM_CALL_NIF_SIZE (BEAM_ASM_NFUNC_SIZE + 48)
 #    endif
 
 /*

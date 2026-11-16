@@ -113,9 +113,17 @@ void BeamModuleAssembler::embed_vararg_rodata(const Span<const ArgVal> &args,
         emit_adr(reg, data);
         a.b(next);
     } else {
-        Label anchor = embed_label(data, disp32K);
+        Label anchor;
 
-        a.lnia(reg);
+        /* See `load_constant`. */
+        if (erts_jit_ppc_isa_3_0) {
+            anchor = embed_label(data, disp32K);
+            emit_pc(reg);
+        } else {
+            emit_pc(reg);
+            anchor = embed_label(data, disp32K);
+        }
+
         a.ld(reg, reg, anchor);
 
         a.section(rodata);
@@ -401,13 +409,26 @@ enum erts_is_line_breakpoint BeamGlobalAssembler::is_line_breakpoint_trampoline(
 
     /* The call goes through the dispatch table of the module, which in a
      * very large module is in turn reached through a veneer. Both of them
-     * are either a direct branch, or load their target from a pointer that
-     * follows them (see `emit_veneer`). */
+     * are either a direct branch, or one of the sequences that
+     * `emit_int_code_end` and `emit_veneer` emit for the processor that we
+     * are running on. */
     for (int hops = 0; hops < 3; hops++) {
         const Uint32 lnia_super_tmp = 0x4D800004;
         const Uint32 ld_super_tmp = 0xE98C0000;
         const Uint32 mtctr_super_tmp = 0x7D8903A6;
         const Uint32 bctr = 0x4E800420;
+
+        const Uint32 imm_mask = 0xFFFF0000;
+        const Uint32 lis_super_tmp = 0x3D800000;
+        const Uint32 ori_super_tmp = 0x618C0000;
+        const Uint32 sldi_32_super_tmp = 0x798C07C6;
+        const Uint32 oris_super_tmp = 0x658C0000;
+
+        const Uint32 mflr_super_tmp = 0x7D8802A6;
+        const Uint32 mtlr_super_tmp = 0x7D8803A6;
+        const Uint32 std_super_tmp_below_sp = 0xF981FFF8;
+        const Uint32 ld_super_tmp_below_sp = 0xE981FFF8;
+        const Uint32 bcl_next = 0x429F0005;
 
         if (pc == expected_target) {
             return line_bp_type;
@@ -423,6 +444,28 @@ enum erts_is_line_breakpoint BeamGlobalAssembler::is_line_breakpoint_trampoline(
             const Uint32 *target;
 
             memcpy(&target, pointer, sizeof(target));
+            pc = target;
+        } else if ((pc[0] & imm_mask) == lis_super_tmp &&
+                   (pc[1] & imm_mask) == ori_super_tmp &&
+                   pc[2] == sldi_32_super_tmp &&
+                   (pc[3] & imm_mask) == oris_super_tmp &&
+                   (pc[4] & imm_mask) == ori_super_tmp &&
+                   pc[5] == mtctr_super_tmp && pc[6] == bctr) {
+            /* See `mov_imm64_fixed`. */
+            UWord target = ((UWord)(pc[0] & 0xFFFF) << 48) |
+                           ((UWord)(pc[1] & 0xFFFF) << 32) |
+                           ((UWord)(pc[3] & 0xFFFF) << 16) |
+                           (UWord)(pc[4] & 0xFFFF);
+
+            pc = (const Uint32 *)target;
+        } else if (pc[0] == mflr_super_tmp && pc[1] == std_super_tmp_below_sp &&
+                   pc[2] == bcl_next && pc[3] == mflr_super_tmp &&
+                   pc[4] == (ld_super_tmp | sizeof(Uint32[6])) &&
+                   pc[5] == mtctr_super_tmp && pc[6] == ld_super_tmp_below_sp &&
+                   pc[7] == mtlr_super_tmp && pc[8] == bctr) {
+            const Uint32 *target;
+
+            memcpy(&target, &pc[9], sizeof(target));
             pc = target;
         } else {
             return IS_NOT_LINE_BP;
@@ -596,23 +639,35 @@ void BeamModuleAssembler::emit_int_code_end() {
      * Since the table is potentially very large, we'll emit all stubs that are
      * due within it so we won't have to check on every iteration. */
     mark_unreachable();
-    flush_pending_stubs(_dispatchTable.size() * DISPATCH_THUNK_SIZE +
+    flush_pending_stubs(_dispatchTable.size() * dispatch_thunk_size() +
                         dispUnknown);
 
     for (auto pair : _dispatchTable) {
-        Label pointer = a.new_label();
-
         bind_veneer_target(pair.second);
 
         /* The address is loaded into SUPER_TMP, which is where a C function
          * expects to find its own address when called through a pointer. */
-        a.lnia(SUPER_TMP);
-        a.ld(SUPER_TMP, SUPER_TMP, pointer);
-        a.mtctr(SUPER_TMP);
-        a.bctr();
+        if (erts_jit_ppc_isa_3_0) {
+            Label pointer = a.new_label();
 
-        a.bind(pointer);
-        a.embed_uint64((Uint64)pair.first);
+            a.lnia(SUPER_TMP);
+            a.ld(SUPER_TMP, SUPER_TMP, pointer);
+            a.mtctr(SUPER_TMP);
+            a.bctr();
+
+            a.bind(pointer);
+            a.embed_uint64((Uint64)pair.first);
+        } else {
+            /* Finding out where we are takes several instructions and the
+             * link register, which holds the return address when we get
+             * here. The address is known, so we load it as a constant
+             * instead.
+             *
+             * `is_line_breakpoint_trampoline` relies on this sequence. */
+            mov_imm64_fixed(SUPER_TMP, (Uint64)pair.first);
+            a.mtctr(SUPER_TMP);
+            a.bctr();
+        }
     }
 
     mark_unreachable();
@@ -938,10 +993,34 @@ void BeamModuleAssembler::emit_veneer(const Veneer &veneer) {
         Label pointer = a.new_label();
 
         /* Note that this clobbers SUPER_TMP and the count register. */
-        a.lnia(SUPER_TMP);
-        a.ld(SUPER_TMP, SUPER_TMP, pointer);
-        a.mtctr(SUPER_TMP);
-        a.bctr();
+        if (erts_jit_ppc_isa_3_0) {
+            a.lnia(SUPER_TMP);
+            a.ld(SUPER_TMP, SUPER_TMP, pointer);
+            a.mtctr(SUPER_TMP);
+            a.bctr();
+        } else {
+            Label next = a.new_label();
+
+            /* Finding out where we are overwrites the link register, which
+             * holds a return address when the veneer is used by a call or a
+             * tail call. No other register is known to be free, so we keep
+             * it in the area below the stack pointer that the ABI protects.
+             *
+             * `is_line_breakpoint_trampoline` relies on this sequence. */
+            a.mflr(SUPER_TMP);
+            a.std(SUPER_TMP, ppc::Mem(sp, -8));
+            a.bcl(imm(20), imm(31), next);
+            a.bind(next);
+            a.mflr(SUPER_TMP);
+            a.ld(SUPER_TMP, ppc::Mem(SUPER_TMP, sizeof(Uint32[6])));
+            a.mtctr(SUPER_TMP);
+            a.ld(SUPER_TMP, ppc::Mem(sp, -8));
+            a.mtlr(SUPER_TMP);
+            a.bctr();
+
+            ASSERT(a.offset() - code.label_offset_from_base(next) ==
+                   sizeof(Uint32[6]));
+        }
 
         a.bind(pointer);
         a.embed_label(veneer.target);
