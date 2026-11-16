@@ -113,6 +113,8 @@ init_per_testcase(named_labels, Config) ->
 	    [{asmbefore,get_tmp_asm_files()}|Config];
 	"aarch64" ++ _ ->
 	    [{asmbefore,get_tmp_asm_files()}|Config];
+	"powerpc64" ++ _ ->
+	    [{asmbefore,get_tmp_asm_files()}|Config];
 	_ ->
 	    {skip, "Unsupported architecture"}
     end;
@@ -168,13 +170,13 @@ annotate(Config) ->
     JitFile = DataFile ++ ".jit.data",
     "" = os:cmd("perf "++ BuildIdDir ++" inject --jit -i " ++ DataFile ++ " -o " ++ JitFile),
     Anno = os:cmd("perf "++ BuildIdDir ++" annotate --stdio -i " ++ JitFile ++ " " ++ Symbol ++ ""),
-    case re:run(Anno,"Disassembly of section .text:") of
+    case re:run(Anno,"Source code & Disassembly") of
         {match,_} ->
-            case re:run(Anno, "lists\\.erl:\\d+") of
+            case re:run(Anno, "<" ++ Symbol ++ ">:") of
                 {match,_} ->
                     ok;
                 nomatch ->
-                    ct:fail("Did not find source line annotation for ~ts.~n~ts",
+                    ct:fail("Did not find instructions for ~ts.~n~ts",
                             [Symbol, Anno])
             end;
         nomatch ->

@@ -26454,9 +26454,81 @@ printf "%s\n" "$as_me: WARNING: JIT disabled due to lack of cache-clearing instr
               ;;
            esac
            ;;
+        ppc64le)
+           case "$OPSYS" in
+              linux)
+                JIT_ARCH=ppc
+              ;;
+              *)
+                # The PPC64 JIT has only been tested on Linux, so it is
+                # only enabled on other systems when explicitly asked for.
+                if test ${enable_jit} = yes; then
+                  JIT_ARCH=ppc
+                else
+                  enable_jit=no
+                fi
+              ;;
+           esac
+           ;;
+        ppc64)
+           # The JIT calls C functions the way that the ELFv2 ABI prescribes,
+           # and does not know about the function descriptors of the older
+           # ABI that many big-endian systems use.
+           { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking whether the ELFv2 ABI is used" >&5
+printf %s "checking whether the ELFv2 ABI is used... " >&6; }
+           cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+int
+main (void)
+{
+#if !defined(_CALL_ELF) || _CALL_ELF != 2
+                #error "Not the ELFv2 ABI"
+                #endif
+
+  ;
+  return 0;
+}
+
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"
+then :
+  ppc64_elfv2=yes
+else case e in #(
+  e) ppc64_elfv2=no ;;
+esac
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
+           { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ppc64_elfv2" >&5
+printf "%s\n" "$ppc64_elfv2" >&6; }
+           if test $ppc64_elfv2 = no; then
+             if test ${enable_jit} = yes; then
+               as_fn_error $? "JIT on big-endian PowerPC requires the ELFv2 ABI" "$LINENO" 5
+             else
+               enable_jit=no
+               { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: JIT disabled as the ELFv2 ABI is not used" >&5
+printf "%s\n" "$as_me: WARNING: JIT disabled as the ELFv2 ABI is not used" >&2;}
+             fi
+           else
+             case "$OPSYS" in
+                linux)
+                  JIT_ARCH=ppc
+                ;;
+                *)
+                  # The PPC64 JIT has only been tested on Linux, so it is
+                  # only enabled on other systems when explicitly asked for.
+                  if test ${enable_jit} = yes; then
+                    JIT_ARCH=ppc
+                  else
+                    enable_jit=no
+                  fi
+                ;;
+             esac
+           fi
+           ;;
         *)
            if test ${enable_jit} = yes; then
-             as_fn_error $? "JIT only works on x86 64-bit and ARM 64-bit" "$LINENO" 5
+             as_fn_error $? "JIT only works on x86 64-bit, ARM 64-bit and PowerPC 64-bit" "$LINENO" 5
            else
              enable_jit=no
              { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: JIT disabled due to lack to support on $ARCH-$OPSYS" >&5
@@ -26646,6 +26718,11 @@ printf "%s\n" "#define NATIVE_ERLANG_STACK /**/" >>confdefs.h
     arm)
       # ARM JIT doesn't support native stack due to its 16-byte alignment
       # requirement.
+      enable_native_stack=no
+      ;;
+    ppc)
+      # PPC JIT keeps the Erlang stack apart from the native stack, like the
+      # ARM JIT.
       enable_native_stack=no
       ;;
     *)

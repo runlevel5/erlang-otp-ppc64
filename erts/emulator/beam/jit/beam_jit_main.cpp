@@ -34,6 +34,8 @@ extern "C"
 #    include <libkern/OSCacheControl.h>
 #elif defined(WIN32)
 #    include <windows.h>
+#elif defined(__powerpc64__) && defined(__linux__)
+#    include <sys/auxv.h>
 #endif
 }
 
@@ -87,6 +89,11 @@ static CpuInfo cpuinfo;
 #    define BEAMASM_MANUAL_ICACHE_FLUSHING
 #endif
 
+#if defined(__powerpc64__) && defined(__linux__) && defined(__GNUC__) &&       \
+        defined(ERTS_THR_INSTRUCTION_BARRIER)
+#    define BEAMASM_MANUAL_ICACHE_FLUSHING
+#endif
+
 #ifdef BEAMASM_MANUAL_ICACHE_FLUSHING
 static UWord min_icache_line_size;
 static UWord min_dcache_line_size;
@@ -103,6 +110,75 @@ static void init_cache_info() {
     __asm__ __volatile__("mrs %0, ctr_el0\n" : "=r"(ctr_el0));
     min_dcache_line_size = (4 << ((ctr_el0 >> 16) & 0xF));
     min_icache_line_size = (4 << (ctr_el0 & 0xF));
+#elif defined(__powerpc64__) && defined(BEAMASM_MANUAL_ICACHE_FLUSHING)
+    /* DCBST/ICBI operate on a cache block basis, and the kernel tells us how
+     * large the blocks are.
+     *
+     * Stepping by less than the actual block size is always correct, so we
+     * fall back to a small size should the kernel not provide it. */
+    min_dcache_line_size = getauxval(AT_DCACHEBSIZE);
+    min_icache_line_size = getauxval(AT_ICACHEBSIZE);
+
+    if (min_dcache_line_size == 0 ||
+        (min_dcache_line_size & (min_dcache_line_size - 1)) != 0) {
+        min_dcache_line_size = 16;
+    }
+
+    if (min_icache_line_size == 0 ||
+        (min_icache_line_size & (min_icache_line_size - 1)) != 0) {
+        min_icache_line_size = 16;
+    }
+#endif
+}
+
+#if defined(__powerpc64__)
+/* Set when the processor implements Power ISA 3.0 (POWER9). The code
+ * generator uses it to choose between instructions that were introduced
+ * there and sequences that work on older processors. */
+bool erts_jit_ppc_isa_3_0 = false;
+
+/* +JDpowerisa: The Power ISA level to generate code for. A level that is
+ * lower than what the processor implements makes it possible to test the
+ * code for older processors without having one. */
+enum erts_jit_ppc_isa_level erts_jit_ppc_isa = ERTS_JIT_PPC_ISA_AUTO;
+#endif
+
+/* Finds out what the processor is capable of, and exits the emulator if it
+ * lacks something that the generated code cannot do without. */
+static void check_cpu_requirements() {
+#if defined(__powerpc64__) && defined(__linux__)
+#    ifndef PPC_FEATURE2_ARCH_2_07
+#        define PPC_FEATURE2_ARCH_2_07 0x80000000
+#    endif
+#    ifndef PPC_FEATURE2_ARCH_3_00
+#        define PPC_FEATURE2_ARCH_3_00 0x00800000
+#    endif
+
+    unsigned long hwcap2 = getauxval(AT_HWCAP2);
+
+    /* The PPC64 JIT uses instructions that were introduced in Power ISA
+     * 2.06 and 2.07 without testing whether they exist. */
+    if (!(hwcap2 & PPC_FEATURE2_ARCH_2_07)) {
+        erts_exit(ERTS_ERROR_EXIT,
+                  "The JIT requires a processor that implements Power ISA "
+                  "2.07 (POWER8) or later.\n"
+                  "Start the emulator with '-emu_flavor emu' to use the "
+                  "interpreter instead.\n");
+    }
+
+    if (erts_jit_ppc_isa == ERTS_JIT_PPC_ISA_3_0 &&
+        !(hwcap2 & PPC_FEATURE2_ARCH_3_00)) {
+        erts_exit(ERTS_ERROR_EXIT,
+                  "+JDpowerisa 3.0 was given, but the processor does not "
+                  "implement Power ISA 3.0 (POWER9).\n");
+    }
+
+    erts_jit_ppc_isa_3_0 = (hwcap2 & PPC_FEATURE2_ARCH_3_00) != 0 &&
+                           erts_jit_ppc_isa != ERTS_JIT_PPC_ISA_2_07;
+#elif defined(__powerpc64__)
+    /* We do not know how to ask this system what the processor implements,
+     * so we only use Power ISA 3.0 when told that it is there. */
+    erts_jit_ppc_isa_3_0 = erts_jit_ppc_isa == ERTS_JIT_PPC_ISA_3_0;
 #endif
 }
 
@@ -246,6 +322,8 @@ void beamasm_init() {
     unsigned label = 1;
 
     ASSERT(bga == nullptr && bma == nullptr);
+
+    check_cpu_requirements();
 
     struct operands {
         Eterm name;
@@ -490,6 +568,33 @@ extern "C"
          * Note that this barrier need not be executed on other cores, it's
          * enough for them to issue an instruction synchronization barrier. */
         __asm__ __volatile__("dsb ish\n" ::: "memory");
+#elif defined(__powerpc64__) && defined(BEAMASM_MANUAL_ICACHE_FLUSHING)
+        /* Note that we do not issue an instruction synchronization barrier
+         * (`isync`) here, for the same reason as on AArch64 above: it must be
+         * issued on all schedulers and not just the calling thread. */
+        UWord start, end, stride;
+
+        start = reinterpret_cast<UWord>(address);
+        end = start + size;
+
+        /* Write the modified data cache blocks to memory. */
+        stride = min_dcache_line_size;
+        for (UWord i = start & ~(stride - 1); i < end; i += stride) {
+            __asm__ __volatile__("dcbst 0, %0\n" ::"r"(i) : "memory");
+        }
+
+        /* The stores must have been performed before we invalidate the
+         * instruction cache, or it can be repopulated with stale data. */
+        __asm__ __volatile__("sync\n" ::: "memory");
+
+        stride = min_icache_line_size;
+        for (UWord i = start & ~(stride - 1); i < end; i += stride) {
+            __asm__ __volatile__("icbi 0, %0\n" ::"r"(i) : "memory");
+        }
+
+        /* Ensures that the invalidation has been performed on all cores
+         * before moving on. */
+        __asm__ __volatile__("sync\n" ::: "memory");
 #elif (defined(__x86_64__) || defined(_M_X64)) &&                              \
         defined(ERTS_THR_INSTRUCTION_BARRIER)
         /* We don't need to invalidate cache on this platform, but since we
