@@ -42,7 +42,7 @@ on:
         value: ${{ jobs.create-sbom.outputs.ort_version }}
 
 env:
-  ORT_VERSION: 77.0.0
+  ORT_VERSION: 92.2.0
   OTP_SBOM_VERSION: ${{ inputs.otp_sbom_version }}
   SCAN_RESULT_CACHE_PATH: .ort/scan-result.json
 
@@ -63,7 +63,7 @@ jobs:
       - name: Use HTTPS instead of SSH for Git cloning
         run: git config --global url.https://github.com/.insteadOf ssh://git@github.com/
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -72,7 +72,7 @@ jobs:
           BASE_BRANCH: ${{ inputs.base_branch }}
 
       - name: Fetch Default ORT Config
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: oss-review-toolkit/ort-config
           ref: "d2978deb230beae095bb6cfec074b94f1a74fd34"
@@ -95,7 +95,7 @@ jobs:
         run: echo "ort_version=${{ env.ORT_VERSION }}" >> $GITHUB_OUTPUT
 
       - name: Run OSS Review Toolkit (analyzer)
-        uses: oss-review-toolkit/ort-ci-github-action@1805edcf1f4f55f35ae6e4d2d9795ccfb29b6021 # ratchet:oss-review-toolkit/ort-ci-github-action@v1.1.0
+        uses: oss-review-toolkit/ort-ci-github-action@086d928d24ef1653dc0777296b312fda5faaaf52 # v1.2.0
         with:
             image: ghcr.io/oss-review-toolkit/ort-minimal:${{ env.ORT_VERSION }}
             run: >
@@ -106,18 +106,6 @@ jobs:
 
       - name: Link results
         run: ln -s analyzer-result.json $HOME/.ort/ort-results/current-result.json
-
-      - name: Restore ORT Scanner cache
-        uses: actions/cache/restore@b7e8d49f17405cc70c1c120101943203c98d3a4b # ratchet:actions/cache/restore@v4
-        id: ort-cache
-        if: ${{ inputs.full_build_and_check == 'false' }}
-        with:
-          path: ${{ env.SCAN_RESULT_CACHE_PATH }}
-          key: ort-scan-result-${{ env.ORT_VERSION }}-${{ github.ref_name }}-${{ github.sha }}
-          restore-keys: |
-                ort-scan-result-${{ env.ORT_VERSION }}-${{ github.ref_name }}-
-                ort-scan-result-${{ env.ORT_VERSION }}-${{ github.base_ref }}-${{ github.event.pull_request.base.sha }}
-                ort-scan-result-${{ env.ORT_VERSION }}-${{ github.base_ref }}-
 
       - name: Install dependencies in docker image
         run: |
@@ -130,23 +118,8 @@ jobs:
               pip install -U ntia-conformance-checker
           EOF
 
-      - name: Restore from cache
-        if: hashFiles(env.SCAN_RESULT_CACHE_PATH) != ''
-        run: |
-            docker run -v $PWD/:/github -v $HOME:$HOME otp \
-               "/github/.github/scripts/ort-scanner.es init -i $HOME/.ort/ort-results/analyzer-result.json \
-               -o $HOME/.ort/ort-results/scan-result.init.json /github"
-            docker run -v $PWD/:/github -v $HOME:$HOME otp \
-               "/github/.github/scripts/ort-scanner.es restore-cache -i $HOME/.ort/ort-results/scan-result.init.json \
-               -o $HOME/.ort/ort-results/scan-result.cache.json /github/${{ env.SCAN_RESULT_CACHE_PATH }}"
-            docker run -v $PWD/:/github -v $HOME:$HOME otp \
-               "/github/.github/scripts/ort-scanner.es scan -t scancode -s fill \
-               -i $HOME/.ort/ort-results/scan-result.cache.json \
-               -o $HOME/.ort/ort-results/scan-result.json /github"
-
       - name: Run OSS Review Toolkit (scanner)
-        if: hashFiles(env.SCAN_RESULT_CACHE_PATH) == ''
-        uses: oss-review-toolkit/ort-ci-github-action@1805edcf1f4f55f35ae6e4d2d9795ccfb29b6021 # ratchet:oss-review-toolkit/ort-ci-github-action@v1.1.0
+        uses: oss-review-toolkit/ort-ci-github-action@086d928d24ef1653dc0777296b312fda5faaaf52 # v1.2.0
         with:
             image: ghcr.io/oss-review-toolkit/ort-minimal:${{ env.ORT_VERSION }}
             run: >
@@ -162,7 +135,7 @@ jobs:
                -o $HOME/.ort/ort-results/scan-result.reuse.json /github"
 
       - name: Upload scan results
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # ratchet:actions/upload-artifact@v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ort-scan-results
           path: |
@@ -175,7 +148,7 @@ jobs:
           ln -f -s scan-result.reuse.json $HOME/.ort/ort-results/current-result.json
 
       - name: Run OSS Review Toolkit (reporter)
-        uses: oss-review-toolkit/ort-ci-github-action@1805edcf1f4f55f35ae6e4d2d9795ccfb29b6021 # ratchet:oss-review-toolkit/ort-ci-github-action@v1.1.0
+        uses: oss-review-toolkit/ort-ci-github-action@086d928d24ef1653dc0777296b312fda5faaaf52 # v1.2.0
         with:
             image: ghcr.io/oss-review-toolkit/ort-minimal:${{ env.ORT_VERSION }}
             run: >
@@ -183,13 +156,6 @@ jobs:
             report-formats: "SpdxDocument"
             ort-cli-report-args: '-O SpdxDocument=outputFileFormats=JSON'
             sw-version: ${{ env.OTP_SBOM_VERSION }}
-
-      - name: Save ORT Scanner cache
-        uses: actions/cache/save@b7e8d49f17405cc70c1c120101943203c98d3a4b # ratchet:actions/cache/save@v4
-        if: steps.ort-cache.outputs.cache-hit != 'true'
-        with:
-            path: ${{ env.SCAN_RESULT_CACHE_PATH }}
-            key: ${{ steps.ort-cache.outputs.cache-primary-key }}
 
       - name: Process SBOM
         run: |
@@ -206,13 +172,13 @@ jobs:
               --sbom-file $HOME/.ort/ort-results/bom.spdx.json"
 
       - name: Upload SPDX SBOM result
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # ratchet:actions/upload-artifact@v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: spdx-sbom-result
           path: /home/runner/.ort/ort-results/bom.spdx.json
 
       - name: Run OSS Review Toolkit (upload)
-        uses: oss-review-toolkit/ort-ci-github-action@1805edcf1f4f55f35ae6e4d2d9795ccfb29b6021 # ratchet:oss-review-toolkit/ort-ci-github-action@v1.1.0
+        uses: oss-review-toolkit/ort-ci-github-action@086d928d24ef1653dc0777296b312fda5faaaf52 # v1.2.0
         with:
             image: ghcr.io/oss-review-toolkit/ort-minimal:${{ env.ORT_VERSION }}
             run: >
@@ -224,7 +190,7 @@ jobs:
         run: ln -f -s scan-result.reuse.json $HOME/.ort/ort-results/current-result.json
 
       - name: Run OSS Review Toolkit (evaluator)
-        uses: oss-review-toolkit/ort-ci-github-action@1805edcf1f4f55f35ae6e4d2d9795ccfb29b6021 # ratchet:oss-review-toolkit/ort-ci-github-action@v1.1.0
+        uses: oss-review-toolkit/ort-ci-github-action@086d928d24ef1653dc0777296b312fda5faaaf52 # v1.2.0
         with:
             image: ghcr.io/oss-review-toolkit/ort-minimal:${{ env.ORT_VERSION }}
             run: >
@@ -244,7 +210,7 @@ jobs:
       id-token: write   # dependency submission OIDC
       actions: read     # actions/download-artifact
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -253,7 +219,7 @@ jobs:
           BASE_BRANCH: ${{ inputs.base_branch }}
 
       - name: Download SBoM
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # ratchet:actions/download-artifact@v6.0.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
             name: ort-results-otp-${{ env.OTP_SBOM_VERSION }}
 
