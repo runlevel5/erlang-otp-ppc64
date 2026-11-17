@@ -599,6 +599,9 @@ __decl_noreturn void __noreturn  erts_usage(void)
 
 #ifdef BEAMASM
     erts_fprintf(stderr, "-JDdump bool   enable or disable dumping of generated assembly code for each module loaded\n");
+#if defined(__powerpc64__)
+    erts_fprintf(stderr, "-JDpowerisa 2.07|3.0|auto  set the Power ISA level that JIT:ed code is generated for\n");
+#endif
     erts_fprintf(stderr, "-JPcover true|false|line|line_counters|function|function_counters  enable or disable instrumentation for coverage\n");
     erts_fprintf(stderr, "-JPperf true|false|dump|map|fp|no_fp   enable or disable support for perf on Linux\n");
     erts_fprintf(stderr, "-JPperfdirectory <directory>    set the directory perf files are stored. Default: /tmp\n");
@@ -1724,6 +1727,23 @@ erl_start(int argc, char **argv)
                         erts_fprintf(stderr, "bad +JDdump flag %s\n", arg);
                         erts_usage();
                     }
+                } else if (has_prefix("powerisa", sub_param)) {
+#if defined(__powerpc64__)
+                    arg = get_arg(sub_param+8, argv[i + 1], &i);
+                    if (sys_strcmp(arg, "auto") == 0) {
+                        erts_jit_ppc_isa = ERTS_JIT_PPC_ISA_AUTO;
+                    } else if (sys_strcmp(arg, "2.07") == 0) {
+                        erts_jit_ppc_isa = ERTS_JIT_PPC_ISA_2_07;
+                    } else if (sys_strcmp(arg, "3.0") == 0) {
+                        erts_jit_ppc_isa = ERTS_JIT_PPC_ISA_3_0;
+                    } else {
+                        erts_fprintf(stderr, "bad +JDpowerisa flag %s\n", arg);
+                        erts_usage();
+                    }
+#else
+                    erts_fprintf(stderr, "+JDpowerisa is not supported on this platform\n");
+                    erts_usage();
+#endif
                 }
                 break;
             case 'P':

@@ -51,6 +51,15 @@ extern enum beamasm_perf_flags erts_jit_perf_support;
 extern char etrs_jit_perf_directory[MAXPATHLEN];
 #    endif
 extern int erts_jit_single_map;
+#    if defined(__powerpc64__)
+/* The Power ISA level to generate code for, see +JDpowerisa. */
+enum erts_jit_ppc_isa_level {
+    ERTS_JIT_PPC_ISA_AUTO,
+    ERTS_JIT_PPC_ISA_2_07,
+    ERTS_JIT_PPC_ISA_3_0
+};
+extern enum erts_jit_ppc_isa_level erts_jit_ppc_isa;
+#    endif
 
 void beamasm_init(void);
 void *beamasm_new_assembler(Eterm mod,
@@ -125,6 +134,8 @@ void beamasm_flush_icache(const void *address, size_t size);
  * load. */
 #    if defined(__aarch64__)
 #        define BEAM_ASM_FUNC_PROLOGUE_SIZE 12
+#    elif defined(__powerpc64__)
+#        define BEAM_ASM_FUNC_PROLOGUE_SIZE 16
 #    else
 #        define BEAM_ASM_FUNC_PROLOGUE_SIZE 8
 #    endif
@@ -134,6 +145,14 @@ void beamasm_flush_icache(const void *address, size_t size);
 #        define BEAM_ASM_NFUNC_SIZE (BEAM_ASM_FUNC_PROLOGUE_SIZE + 4)
 #    else
 #        define BEAM_ASM_NFUNC_SIZE (BEAM_ASM_FUNC_PROLOGUE_SIZE + 8)
+#    endif
+
+/* Size (in bytes) of a call_nif stub: an ErtsNativeFunc/call_nif prologue,
+ * three words of data, and the code that calls the NIF. */
+#    if defined(__powerpc64__)
+#        define BEAM_ASM_CALL_NIF_SIZE (BEAM_ASM_NFUNC_SIZE + 56)
+#    else
+#        define BEAM_ASM_CALL_NIF_SIZE (BEAM_ASM_NFUNC_SIZE + 48)
 #    endif
 
 /*
@@ -167,7 +186,7 @@ void beamasm_flush_icache(const void *address, size_t size);
  *   the code that sets breakpoints/loads NIFs doesn't rely on the trampoline
  *   being active until thread progress has been made.
  *
- * The solution for AArch64 is similar. */
+ * The solution for AArch64 and PPC64 is similar. */
 
 enum erts_asm_bp_flag {
     ERTS_ASM_BP_FLAG_NONE = 0,
@@ -191,6 +210,14 @@ static inline void erts_asm_bp_enable(ErtsCodePtr rw_p) {
 
     /* Reroute the initial jump instruction to `.enabled`. */
     rw_code[0] = 0x14000001;
+#    elif defined(__powerpc64__)
+    Uint32 volatile *rw_code = (Uint32 *)rw_p;
+
+    /* B .next, .enabled: BL breakpoint_handler, .next: */
+    ASSERT(rw_code[0] == 0x48000008);
+
+    /* Reroute the initial jump instruction to `.enabled`. */
+    rw_code[0] = 0x48000004;
 #    else /* x86_64 */
     byte volatile *rw_code = (byte *)rw_p;
 
@@ -212,6 +239,14 @@ static inline void erts_asm_bp_disable(ErtsCodePtr rw_p) {
 
     /* Reroute the initial jump instruction back to `.next`. */
     rw_code[0] = 0x14000002;
+#    elif defined(__powerpc64__)
+    Uint32 volatile *rw_code = (Uint32 *)rw_p;
+
+    /* B .enabled, .enabled: BL breakpoint_handler, .next: */
+    ASSERT(rw_code[0] == 0x48000004);
+
+    /* Reroute the initial jump instruction back to `.next`. */
+    rw_code[0] = 0x48000008;
 #    else /* x86_64 */
     byte volatile *rw_code = (byte *)rw_p;
 
@@ -234,6 +269,9 @@ static inline void erts_asm_bp_set_flag(ErtsCodeInfo *ci_rw,
         ErtsCodePtr rw_p = erts_codeinfo_to_code(ci_rw);
 #    if defined(__aarch64__)
         rw_p = (ErtsCodePtr)((Uint32 *)rw_p + 1);
+#    elif defined(__powerpc64__)
+        /* The branch comes after MFLR and STDU. */
+        rw_p = (ErtsCodePtr)((Uint32 *)rw_p + 2);
 #    endif
         erts_asm_bp_enable(rw_p);
     }
@@ -255,6 +293,9 @@ static inline void erts_asm_bp_unset_flag(ErtsCodeInfo *ci_rw,
         ErtsCodePtr rw_p = erts_codeinfo_to_code(ci_rw);
 #    if defined(__aarch64__)
         rw_p = (ErtsCodePtr)((Uint32 *)rw_p + 1);
+#    elif defined(__powerpc64__)
+        /* The branch comes after MFLR and STDU. */
+        rw_p = (ErtsCodePtr)((Uint32 *)rw_p + 2);
 #    endif
         erts_asm_bp_disable(rw_p);
     }
