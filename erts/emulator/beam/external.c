@@ -3029,6 +3029,30 @@ enc_pid(ErtsAtomCacheMap *acmp, Eterm pid, byte* ep, Uint64 dflags)
     return enc_external_pid(acmp, pid, ep, dflags);
 }
 
+static byte*
+enc_int32(Sint32 val, byte* ep)
+{
+    if ((Uint32)val < 256) {
+        *ep++ = SMALL_INTEGER_EXT;
+        put_int8(val, ep);
+        ep++;
+    } else {
+        *ep++ = INTEGER_EXT;
+        put_int32(val, ep);
+        ep += 4;
+    }
+    return ep;
+}
+
+static Uint
+encode_int32_size(Sint32 val)
+{
+    if ((Uint32)val < 256)
+        return 1 + 1;		/* SMALL_INTEGER_EXT */
+    else
+        return 1 + 4;		/* INTEGER_EXT */
+}
+
 /* Expect an atom in plain text or cached */
 static const byte*
 dec_atom(ErtsDistExternal *edep, const byte* ep, Eterm* objp, Uint32 flags)
@@ -3196,6 +3220,24 @@ dec_pid(ErtsDistExternal *edep, ErtsHeapFactory* factory, const byte* ep,
     return ep;
 }
 
+static const byte*
+dec_int32(const byte* ep, Sint32* val)
+{
+    switch (*ep++) {
+    case SMALL_INTEGER_EXT:
+        *val = get_int8(ep);
+        ep++;
+        break;
+    case INTEGER_EXT:
+        *val = get_int32(ep);
+        ep += 4;
+        break;
+    default:
+        return NULL;
+    }
+    return ep;
+}
+
 
 #define ENC_TERM ((Eterm) 0)
 #define ENC_ONE_CONS ((Eterm) 1)
@@ -3301,7 +3343,10 @@ enc_term_int(TTBEncodeContext* ctx, ErtsAtomCacheMap *acmp, Eterm obj, byte* ep,
         }
     }
 
-    /* We only pass here once at the start of the encoding... */
+    /*
+     * We only pass here once at the start of the encoding
+     * as long as NO RECURSIVE CALLS to enc_term() are done.
+     */
     if (dflags & DFLAG_LOCAL_EXT) {
         *ep++ = LOCAL_EXT;
         lext_hash = ep;
@@ -3984,8 +4029,8 @@ enc_term_int(TTBEncodeContext* ctx, ErtsAtomCacheMap *acmp, Eterm obj, byte* ep,
                     put_int32((Uint32)fun_num_free(funp), ep);
                     ep += 4;
                     ep = enc_atom(acmp, fe->module, ep, dflags);
-                    ep = enc_term(acmp, make_small(fe->old_index), ep, dflags, off_heap);
-                    ep = enc_term(acmp, make_small(fe->old_uniq), ep, dflags, off_heap);
+                    ep = enc_int32((Sint32)fe->old_index, ep);
+                    ep = enc_int32((Sint32)fe->old_uniq, ep);
                     ep = enc_pid(acmp, erts_init_process_id, ep, dflags);
 
                     for (ei = fun_num_free(funp)-1; ei >= 0; ei--) {
@@ -3997,8 +4042,7 @@ enc_term_int(TTBEncodeContext* ctx, ErtsAtomCacheMap *acmp, Eterm obj, byte* ep,
                     *ep++ = EXPORT_EXT;
                     ep = enc_atom(acmp, exp->info.mfa.module, ep, dflags);
                     ep = enc_atom(acmp, exp->info.mfa.function, ep, dflags);
-                    ep = enc_term(acmp, make_small(exp->info.mfa.arity),
-                                 ep, dflags, off_heap);
+                    ep = enc_int32((Sint32)exp->info.mfa.arity, ep);
 
                 }
             }
@@ -4638,8 +4682,16 @@ dec_term_atom_common:
 	case FLOAT_EXT:
 	    {
 		FloatDef ff;
+                char float_buf[31+2];
 
-		if (sys_chars_to_double((char*)ep, &ff.fd) != 0) {
+                // Ensure sys_chars_to_double() does not read (or even write)
+                // out of bounds. Append an invalid character to fail safely
+                // if original string was not zero terminated.
+                sys_memcpy(float_buf, ep, 31);
+                float_buf[31] = '!';
+                float_buf[32] = 0;
+
+                if (sys_chars_to_double(float_buf, &ff.fd) != 0) {
 		    goto error;
 		}
 		ep += 31;
@@ -4797,8 +4849,7 @@ dec_term_atom_common:
 
 	    ref_ext_common:
 
-		if (ref_words > ERTS_MAX_REF_NUMBERS)
-		    goto error;
+                ASSERT(ref_words >= 1 && ref_words <= ERTS_MAX_REF_NUMBERS);
 
 		node = dec_get_node(sysname, cre, make_boxed(hp));
 		if(node == erts_this_node) {
@@ -5008,8 +5059,7 @@ dec_term_atom_common:
                 Export *export;
                 Eterm mod;
                 Eterm name;
-                Eterm temp;
-                Sint arity;
+                Sint32 arity;
 
                 if ((ep = dec_atom(edep, ep, &mod, flags)) == NULL) {
                     goto error;
@@ -5018,15 +5068,9 @@ dec_term_atom_common:
                     goto error;
                 }
                 factory->hp = hp;
-                ep = dec_term(edep, factory, ep, &temp, NULL, flags);
-                if (ep == NULL) {
-                    goto error;
-                }
-                if (!is_small(temp)) {
-                    goto error;
-                }
-                arity = signed_val(temp);
-                if (arity < 0) {
+
+                ep = dec_int32(ep, &arity);
+                if (!ep || arity < 0 || arity > 255) {
                     goto error;
                 }
                 if (flags & ERTS_DIST_EXT_BTT_SAFE) {
@@ -5106,8 +5150,8 @@ dec_term_atom_common:
 		Eterm module;
 		const byte* uniq;
 		int index;
-		Sint old_uniq;
-		Sint old_index;
+                Sint32 old_uniq;
+                Sint32 old_index;
 		unsigned num_free;
 		int i;
 		Eterm temp;
@@ -5133,30 +5177,24 @@ dec_term_atom_common:
 		}
 		factory->hp = hp;
 		/* Index */
-		if ((ep = dec_term(edep, factory, ep, &temp, NULL, flags)) == NULL) {
+                if ((ep = dec_int32(ep, &old_index)) == NULL) {
 		    goto error;
 		}
-		if (!is_small(temp)) {
-		    goto error;
-		}
-		old_index = unsigned_val(temp);
 
 		/* Uniq */
-		if ((ep = dec_term(edep, factory, ep, &temp, NULL, flags)) == NULL) {
+                if ((ep = dec_int32(ep, &old_uniq)) == NULL) {
 		    goto error;
 		}
-		if (!is_small(temp)) {
-		    goto error;
-		}
-		old_uniq = unsigned_val(temp);
 
                 /* Creator pid, discarded */
-                if ((ep = dec_term(edep, factory, ep, &temp, NULL,
-                                   flags)) == NULL) {
-                    goto error;
-                }
-                if (!is_pid(temp)) {
-                    goto error;
+                {
+                    byte pid_tag = *ep++;
+                    if ((pid_tag != PID_EXT && pid_tag != NEW_PID_EXT)
+                        ||
+                        (ep = dec_pid(edep, factory, ep, &temp, pid_tag,
+                                      flags)) == NULL) {
+                        goto error;
+                    }
                 }
 
                 funp->entry.fun = erts_fun_entry_get_or_make_stub(module,
@@ -5890,8 +5928,8 @@ encode_size_struct_int(TTBSizeContext* ctx, ErtsAtomCacheMap *acmp, Eterm obj,
                             + 4 /* index */
                             + 4; /* free variables */
                     result += encode_atom_size(acmp, fe->module, dflags);
-                    result += encode_small_size(acmp, make_small(fe->old_index), dflags);
-                    result += encode_small_size(acmp, make_small(fe->old_uniq), dflags);
+                    result += encode_int32_size((Sint32)fe->old_index);
+                    result += encode_int32_size((Sint32)fe->old_uniq);
                     result += encode_pid_size(acmp, erts_init_process_id, dflags);
 
                     if (fun_num_free(funp) > 1) {
@@ -5909,7 +5947,7 @@ encode_size_struct_int(TTBSizeContext* ctx, ErtsAtomCacheMap *acmp, Eterm obj,
                     result += 1;
                     result += encode_atom_size(acmp, ep->info.mfa.module, dflags);
                     result += encode_atom_size(acmp, ep->info.mfa.function, dflags);
-                    result += encode_small_size(acmp, make_small(ep->info.mfa.arity), dflags);
+                    result += encode_int32_size((Sint32)ep->info.mfa.arity);
                 }
                 break;
         }
@@ -6226,7 +6264,7 @@ init_done:
 		CHKSIZE(2);
 		id_words = get_int16(ep);
 		    
-		if (id_words > ERTS_MAX_REF_NUMBERS)
+                if (id_words < 1 || id_words > ERTS_MAX_REF_NUMBERS)
 		    goto error;
 
 		ep += 2;

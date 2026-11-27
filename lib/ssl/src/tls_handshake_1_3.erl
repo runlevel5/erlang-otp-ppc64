@@ -533,10 +533,13 @@ validate_finished(#state{connection_states = ConnectionStates,
 
 
 compare_verify_data(Data1, Data2) ->
-    case crypto:hash_equals(Data1, Data2) of
+    try crypto:hash_equals(Data1, Data2) of
         true ->
             ok;
         false ->
+            {error, ?ALERT_REC(?FATAL, ?DECRYPT_ERROR, decrypt_error)}
+    catch
+        error:badarg ->
             {error, ?ALERT_REC(?FATAL, ?DECRYPT_ERROR, decrypt_error)}
     end.
 
@@ -1710,6 +1713,20 @@ validate_key_compatibility(PublicKeyAlgo, RSAKeySize, [CertSignAlg|CertSignAlgs]
         false ->
             select_sign_algo(PublicKeyAlgo, RSAKeySize, CertSignAlgs, OwnSignAlgs, Curve)
     end;
+validate_key_compatibility(PublicKeyAlgo, RSAKeySize, [CertSignAlg|CertSignAlgs], OwnSignAlgs, Curve)
+  when PublicKeyAlgo =:= eddsa ->
+    %% In TLS 1.3 the EdDSA signature scheme is bound to a specific curve
+    %% (RFC 8446 4.2.3 / RFC 8032): eddsa_ed25519 -> ed25519, eddsa_ed448 ->
+    %% ed448. The certificate key's curve MUST match the scheme's curve,
+    %% otherwise the announced CertificateVerify scheme would not match the
+    %% key/signature actually used.
+    {_ , Sign, PeerCurve} = ssl_cipher:scheme_to_components(CertSignAlg),
+    case Sign =:= eddsa andalso Curve =:= PeerCurve of
+        true ->
+            {ok, CertSignAlg};
+        false ->
+            select_sign_algo(PublicKeyAlgo, RSAKeySize, CertSignAlgs, OwnSignAlgs, Curve)
+    end;
 validate_key_compatibility(_, _, [CertSignAlg|_], _, _) ->
     {ok, CertSignAlg}.
 
@@ -1824,7 +1841,8 @@ handle_pre_shared_key(_, undefined, _) ->
 handle_pre_shared_key(#state{ssl_options = #{session_tickets := disabled}}, _, _) ->
     {ok, undefined};
 handle_pre_shared_key(#state{ssl_options = #{session_tickets := Tickets},
-                             handshake_env = #handshake_env{tls_handshake_history =  {HHistory, _}},
+                             handshake_env = #handshake_env{tls_handshake_history =  {HHistory, _},
+                                                            sni_hostname = SNIHostname},
                              static_env = #static_env{trackers = Trackers}},
                       #pre_shared_key_client_hello{offered_psks =
                                                        OfferedPreSharedKeys}, Cipher) when Tickets =/= disabled ->
@@ -1836,7 +1854,7 @@ handle_pre_shared_key(#state{ssl_options = #{session_tickets := Tickets},
       } = OfferedPreSharedKeys,
     case length(Identities) == length(Binders) of
         true ->
-            tls_server_session_ticket:use(Tracker, OfferedPreSharedKeys, CipherHash, HHistory);
+            tls_server_session_ticket:use(Tracker, OfferedPreSharedKeys, CipherHash, HHistory, SNIHostname);
         false ->
             {error, ?ALERT_REC(?FATAL, ?ILLEGAL_PARAMETER, illegal_pre_shared_key)}
     end.

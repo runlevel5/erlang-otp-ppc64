@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * Copyright Ericsson AB 2002-2025. All Rights Reserved.
+ * Copyright Ericsson AB 2002-2026. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -168,7 +168,11 @@ typedef struct {
 
 typedef struct {
     col_type type;
-    int offset;
+    /* Byte offset into values.string. size_t, not int (wraps negative
+     * once num_param_values * type.len exceeds INT_MAX) and not SQLLEN
+     * (only 32 bits with unixODBC BUILD_LEGACY_64_BIT_MODE); it must
+     * cover the full size_t sized allocation from safe_array_malloc. */
+    size_t offset;
     SQLUSMALLINT input_output_type;
     union {
 	byte *string;

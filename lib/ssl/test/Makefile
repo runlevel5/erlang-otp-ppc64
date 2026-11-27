@@ -46,6 +46,7 @@ MODULES = \
 	ssl_api_SUITE\
 	tls_api_SUITE\
 	dtls_api_SUITE\
+        dtls_fragment_SUITE\
         ssl_basic_SUITE \
 	ssl_bench_SUITE \
 	ssl_cipher_SUITE \
@@ -94,6 +95,7 @@ MODULES = \
 	ssl_eqc_SUITE \
 	ssl_rfc_5869_SUITE \
 	tls_1_3_record_SUITE\
+	tls_record_SUITE\
 	openssl_tls_1_3_version_SUITE\
 	tls_1_3_version_SUITE\
 	ssl_socket_SUITE\

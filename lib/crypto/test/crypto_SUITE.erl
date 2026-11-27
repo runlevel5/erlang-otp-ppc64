@@ -40,6 +40,7 @@
          aead_ng/1,
          aead_bad_tag/1,
          aead_bad_key_length/1,
+         aead_empty_tag/1,
          all_ciphers/1,
          api_errors_ecdh/1,
          api_errors_aead/1,
@@ -474,9 +475,9 @@ groups() ->
      {sm4_ofb,              [], [api_ng, api_ng_one_shot]},
      {sm4_cfb,              [], [api_ng, api_ng_one_shot]},
      {sm4_ctr,              [], [api_ng, api_ng_one_shot]},
-     {sm4_gcm,              [], [aead_ng, aead_bad_tag, aead_bad_key_length]},
-     {sm4_ccm,              [], [aead_ng, aead_bad_tag, aead_bad_key_length]},
-     {chacha20_poly1305,    [], [aead_ng, aead_bad_tag, aead_bad_key_length]},
+     {sm4_gcm,              [], [aead_ng, aead_bad_tag, aead_bad_key_length, aead_empty_tag]},
+     {sm4_ccm,              [], [aead_ng, aead_bad_tag, aead_bad_key_length, aead_empty_tag]},
+     {chacha20_poly1305,    [], [aead_ng, aead_bad_tag, aead_bad_key_length, aead_empty_tag]},
      {chacha20,             [], [api_ng, api_ng_one_shot]},
      {poly1305,             [], [poly1305]},
      {no_poly1305,          [], [no_poly1305]},
@@ -523,15 +524,15 @@ groups() ->
      {aes_128_ctr,  [], [api_ng, api_ng_one_shot]},
      {aes_192_ctr,  [], [api_ng, api_ng_one_shot]},
      {aes_256_ctr,  [], [api_ng, api_ng_one_shot]},
-     {aes_128_ccm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length]},
-     {aes_192_ccm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length]},
-     {aes_256_ccm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length]},
+     {aes_128_ccm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length, aead_empty_tag]},
+     {aes_192_ccm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length, aead_empty_tag]},
+     {aes_256_ccm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length, aead_empty_tag]},
      {aes_128_ecb,  [], [api_ng, api_ng_one_shot]},
      {aes_192_ecb,  [], [api_ng, api_ng_one_shot]},
      {aes_256_ecb,  [], [api_ng, api_ng_one_shot]},
-     {aes_128_gcm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length]},
-     {aes_192_gcm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length]},
-     {aes_256_gcm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length]},
+     {aes_128_gcm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length, aead_empty_tag]},
+     {aes_192_gcm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length, aead_empty_tag]},
+     {aes_256_gcm,  [], [aead_ng, aead_bad_tag, aead_bad_key_length, aead_empty_tag]},
      {aes_128_ofb,  [], [api_ng, api_ng_one_shot]},
      {aes_192_ofb,  [], [api_ng, api_ng_one_shot]},
      {aes_256_ofb,  [], [api_ng, api_ng_one_shot]}
@@ -1224,6 +1225,23 @@ aead_bad_key_length(Config) ->
                   end, AEADs)
         end,
     do_cipher_tests(fun aead_cipher_bad_key_length/1, FilteredAEADs).
+
+%%--------------------------------------------------------------------
+aead_empty_tag(Config) ->
+    [_|_] = AEADs = lazy_eval(proplists:get_value(cipher, Config)),
+    FilteredAEADs =
+        case proplists:get_bool(fips, Config) of
+            false ->
+                AEADs;
+            true ->
+                %% In FIPS mode, the IV length must be at least 12 bytes.
+                lists:filter(
+                  fun(Tuple) ->
+                          IVLen = byte_size(element(4, Tuple)),
+                          IVLen >= 12
+                  end, AEADs)
+        end,
+    do_cipher_tests(fun aead_cipher_empty_tag/1, FilteredAEADs).
 
 %%-------------------------------------------------------------------- 
 sign_verify() ->
@@ -1956,6 +1974,19 @@ aead_cipher_bad_key_length({Type, Key, PlainText, IV, AAD, _CipherText, _CipherT
     <<KeyTruncated:KeyTruncatedSize/binary, _/binary>> = Key,
     F(KeyTruncated).
 
+aead_cipher_empty_tag({Type, Key, _PlainText, IV, AAD, CipherText, _CipherTag, _Info}=T) ->
+    aead_cipher_empty_tag_test(T, Type, Key, IV, CipherText, AAD);
+aead_cipher_empty_tag({Type, Key, _PlainText, IV, AAD, CipherText, _CipherTag, _TagLen, _Info}=T) ->
+    aead_cipher_empty_tag_test(T, Type, Key, IV, CipherText, AAD).
+
+aead_cipher_empty_tag_test(T, Type, Key, IV, CipherText, AAD) ->
+    try crypto:crypto_one_time_aead(Type, Key, IV, CipherText, AAD, <<>>, false) of
+        error -> ok;
+        Other -> {other, {<<>>, T, Other}}
+    catch
+        error:_ ->
+            ok
+    end.
 
 cipher_test(T, Fe, Ee, Fd, Ed) ->
     %% Test encrypt
@@ -2218,6 +2249,14 @@ do_generate({rsa = Type, Mod, Exp}) ->
         FIPS ->
             ct:log("do_generate ~p FIPS=~p, Mod=~p  Exp=~p", [Type, FIPS, Mod, Exp]),
             {Pub,Priv} = crypto:generate_key(Type, {Mod,Exp}),
+            %% Verify that key generated has the requested exponent
+            [E | _] = Pub,
+            case crypto:bytes_to_integer(E) of
+                Exp ->
+                    ok;
+                OtherExp ->
+                    ct:fail("Wrong exponent, requested: ~p, got: ~p~n", [Exp, OtherExp])
+            end,
             do_sign_verify({rsa, sha256, Pub, Priv, rsa_plain()})
     end.
 
@@ -2584,7 +2623,7 @@ group_config(rsa, Config) ->
      {pub_priv_encrypt, gen_rsa_pub_priv_tests(PublicS, PrivateS, MsgPubEnc, PrivEnc_OptsToTry)},
      {pub_pub_encrypt,  gen_rsa_pub_priv_tests(PublicS, PrivateS, MsgPubEnc, PubEnc_OptsToTry)},
      {privkey_to_pubkey, get_priv_pub_from_sign_verify(RsaSignVerify)},
-     {generate, [{rsa, 1024, 3},  {rsa, 2048, 17},  {rsa, 3072, 65537}]}
+     {generate, [{rsa, 1024, 3},  {rsa, 2048, 17},  {rsa, 3072, 65537}, {rsa, 1024, 65539}]}
      | Config];
 group_config(dss = Type, Config) ->
     Msg = dss_plain(),
@@ -5439,7 +5478,11 @@ pbkdf2_hmac_invalid_input(Config) when is_list(Config) ->
     TestFun(sha, <<"pass">>, <<"salt">>, "baditer", 1, "Not integer"),
     TestFun(sha, <<"pass">>, <<"salt">>, 0, 1, "Must be > 0"),
     TestFun(sha, <<"pass">>, <<"salt">>, 1, "badlen", "Not integer"),
-    TestFun(sha, <<"pass">>, <<"salt">>, 1, 0, "Must be > 0")
+    TestFun(sha, <<"pass">>, <<"salt">>, 1, 0, "Must be > 0"),
+    %% We skip testing for pass and salt being longer than INT_MAX because that would
+    %% require us to allocate 2 GiB (per binary) just for tests
+    TestFun(sha, <<"pass">>, <<"salt">>, 1 bsl 31, 1, "Must be <= INT_MAX"),
+    TestFun(sha, <<"pass">>, <<"salt">>, 1, 1 bsl 31, "Must be <= INT_MAX")
   catch
     error:{notsup, _, "Unsupported CRYPTO_PKCS5_PBKDF2_HMAC"++_} ->
             {skip, "No CRYPTO_PKCS5_PBKDF2_HMAC"}

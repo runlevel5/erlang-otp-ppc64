@@ -1488,7 +1488,7 @@ maybe_add_pre_shared_key(HelloExtensions, TicketData) ->
                                    binders = Binders}},
                      psk_key_exchange_modes =>
                          #psk_key_exchange_modes{
-                            ke_modes = [psk_ke, psk_dhe_ke]}}.
+                            ke_modes = [psk_dhe_ke]}}.
 
 maybe_add_certificate_auths(HelloExtensions,_,_,false) ->
     HelloExtensions;
@@ -1955,6 +1955,12 @@ get_ec_curve(#'OTPSubjectPublicKeyInfo'{
                                                              order = Order,
                                                              cofactor = Cofactor}}}}) ->
     curve_to_atom(Curve, Base, Order, Cofactor);
+get_ec_curve(#'OTPSubjectPublicKeyInfo'{
+                algorithm = #'PublicKeyAlgorithm'{algorithm = ?'id-Ed25519'}}) ->
+    ed25519;
+get_ec_curve(#'OTPSubjectPublicKeyInfo'{
+                algorithm = #'PublicKeyAlgorithm'{algorithm = ?'id-Ed448'}}) ->
+    ed448;
 get_ec_curve(_) ->
     unsupported.
 
@@ -2122,7 +2128,9 @@ extension_value(#psk_key_exchange_modes{ke_modes = Modes}) ->
 extension_value(#certificate_authorities{authorities = Auths}) ->
     Auths;
 extension_value(#cookie{cookie = Cookie}) ->
-    Cookie.
+    Cookie;
+extension_value(#certificate_status{response = Response}) ->
+    Response.
 
 %% Extension value mapping (from decode_extensions/4):
 %%   'false'     - extension absent from ServerHello (maps:get default)
@@ -3779,8 +3787,10 @@ validate_cipher_suite(CipherSuite, ClientCipherSuites) ->
     end.
 
 validate_application_protocol(_, undefined) ->
-    %% Server sent ALPN protocol not requested by client
-    throw(?ALERT_REC(?FATAL, ?ILLEGAL_PARAMETER, unexpected_alpn));
+    %% Server sent an ALPN extension the client did not request at all.
+    %% RFC 5246 7.4.1.4: an unrequested extension MUST be rejected with
+    %% unsupported_extension (matches the TLS-1.3 client, RFC 8446 4.2).
+    throw(?ALERT_REC(?FATAL, ?UNSUPPORTED_EXTENSION, unexpected_alpn));
 validate_application_protocol(Alpn, ClientAlpn) ->
     case lists:member(Alpn, ClientAlpn) of
         true -> ok;

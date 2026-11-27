@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 1996-2025. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -899,8 +899,8 @@ retainer_loop(Cp = #checkpoint_args{name=Name}) ->
 	    Cp2 = do_del_copy(Cp, Tab, Node),
 	    reply(From, Name, ok),
 	    retainer_loop(Cp2);
-	{From, {change_copy, Tab, From, To}} ->
-	    Cp2 = do_change_copy(Cp, Tab, From, To),
+        {From, {change_copy, Tab, FromType, ToType}} ->
+            Cp2 = do_change_copy(Cp, Tab, FromType, ToType),
 	    reply(From, Name, ok),
 	    retainer_loop(Cp2);
 	{_From, {add_retainer, R, Node}} ->

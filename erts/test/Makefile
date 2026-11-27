@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-# Copyright Ericsson AB 1997-2025. All Rights Reserved.
+# Copyright Ericsson AB 1997-2026. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -41,7 +41,8 @@ MODULES= \
 	erlexec_SUITE \
 	z_SUITE \
 	upgrade_SUITE \
-	parallel_messages_SUITE
+	parallel_messages_SUITE \
+	ct_run_SUITE
 
 ERTS_MODULES= erts_test_utils
 

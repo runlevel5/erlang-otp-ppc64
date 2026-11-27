@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * Copyright Ericsson AB 2010-2025. All Rights Reserved.
+ * Copyright Ericsson AB 2010-2026. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -41,16 +41,24 @@ static ERL_NIF_TERM pbkdf2_hmac(ErlNifEnv* env, int argc,
 
     if (!enif_inspect_binary(env, argv[1], &pass))
         return EXCP_BADARG_N(env, 1, "Not binary");
+    if (pass.size > INT_MAX)
+        return EXCP_BADARG_N(env, 1, "Must be <= INT_MAX");
 
     if (!enif_inspect_binary(env, argv[2], &salt))
         return EXCP_BADARG_N(env, 2, "Not binary");
+    if (salt.size > INT_MAX)
+        return EXCP_BADARG_N(env, 2, "Must be <= INT_MAX");
 
     /* We already checked iter<0 and keylen<0 in pbkdf2_hmac_nif */
     if (!enif_get_uint64(env, argv[3], &iter))
         return EXCP_BADARG_N(env, 3, "Not integer");
+    if (iter > INT_MAX)
+        return EXCP_BADARG_N(env, 3, "Must be <= INT_MAX");
 
     if (!enif_get_uint64(env, argv[4], &keylen))
         return EXCP_BADARG_N(env, 4, "Not integer");
+    if (keylen > INT_MAX)
+        return EXCP_BADARG_N(env, 4, "Must be <= INT_MAX");
 
     if (!enif_alloc_binary(keylen, &out))
         return EXCP_ERROR(env, "Can't allocate binary");

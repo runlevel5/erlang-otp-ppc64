@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2015-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2015-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -72,11 +72,13 @@ response_default_headers(Module) ->
 %% Internal functions -----------------------------------
 %%--------------------------------------------------------------------
 httpify({Key0, Value}) ->
+    %% Every response header passes here, including ESI/CGI/customize ones
+    Key1 = http_util:strip_ctl_chars(Key0),
     %% make sure first letter is capital (defacto standard)
-    Words1 = string:tokens(Key0, "-"),
+    Words1 = string:tokens(Key1, "-"),
     Words2 = upify(Words1, []),
     Key    = new_key(Words2),
-    Key ++ ": " ++ Value ++ ?CRLF .
+    Key ++ ": " ++ http_util:strip_ctl_chars(Value) ++ ?CRLF .
 
 new_key([]) ->
     "";
