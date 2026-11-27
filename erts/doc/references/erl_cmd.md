@@ -790,6 +790,23 @@ behavior of earlier flags.
   used to store `perf` dump and map files when running with the JIT on Linux.
   Defaults to `/tmp`.
 
+- **`+JDpowerisa 2.07|3.0|auto`{: #+JDpowerisa }** - Sets the Power ISA level
+  that JIT:ed code is generated for on PowerPC.
+
+  The default is `auto`, which makes the JIT choose instructions according to
+  the processor it runs on. `2.07` (POWER8) and `3.0` (POWER9) make it generate
+  the code for that level instead. Giving a level that is lower than what the
+  processor implements is useful for testing the code meant for older
+  processors. The emulator refuses to start if the processor does not implement
+  the given level.
+
+  On systems other than Linux the JIT cannot find out what the processor
+  implements, and `auto` is the same as `2.07`.
+
+  This flag is only available on PowerPC.
+
+  Since: OTP 29.2
+
 - **`+JMsingle true|false`{: #+JMsingle }** - Enables or disables the use of
   single-mapped RWX memory for JIT code.
 

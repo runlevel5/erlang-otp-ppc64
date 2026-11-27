@@ -3097,9 +3097,64 @@ AS_IF([test ${enable_jit} != no],
               ;;
            esac
            ;;
+        ppc64le)
+           case "$OPSYS" in
+              linux)
+                JIT_ARCH=ppc
+              ;;
+              *)
+                # The PPC64 JIT has only been tested on Linux, so it is
+                # only enabled on other systems when explicitly asked for.
+                if test ${enable_jit} = yes; then
+                  JIT_ARCH=ppc
+                else
+                  enable_jit=no
+                fi
+              ;;
+           esac
+           ;;
+        ppc64)
+           # The JIT calls C functions the way that the ELFv2 ABI prescribes,
+           # and does not know about the function descriptors of the older
+           # ABI that many big-endian systems use.
+           AC_MSG_CHECKING([whether the ELFv2 ABI is used])
+           AC_COMPILE_IFELSE(
+              [AC_LANG_PROGRAM([[]],
+               [[#if !defined(_CALL_ELF) || _CALL_ELF != 2
+                #error "Not the ELFv2 ABI"
+                #endif
+                ]])
+              ],
+              [ppc64_elfv2=yes],
+              [ppc64_elfv2=no])
+           AC_MSG_RESULT([$ppc64_elfv2])
+           if test $ppc64_elfv2 = no; then
+             if test ${enable_jit} = yes; then
+               AC_MSG_ERROR([JIT on big-endian PowerPC requires the ELFv2 ABI])
+             else
+               enable_jit=no
+               AC_MSG_WARN([JIT disabled as the ELFv2 ABI is not used])
+             fi
+           else
+             case "$OPSYS" in
+                linux)
+                  JIT_ARCH=ppc
+                ;;
+                *)
+                  # The PPC64 JIT has only been tested on Linux, so it is
+                  # only enabled on other systems when explicitly asked for.
+                  if test ${enable_jit} = yes; then
+                    JIT_ARCH=ppc
+                  else
+                    enable_jit=no
+                  fi
+                ;;
+             esac
+           fi
+           ;;
         *)
            if test ${enable_jit} = yes; then
-             AC_MSG_ERROR([JIT only works on x86 64-bit and ARM 64-bit])
+             AC_MSG_ERROR([JIT only works on x86 64-bit, ARM 64-bit and PowerPC 64-bit])
            else
              enable_jit=no
              AC_MSG_WARN([JIT disabled due to lack to support on $ARCH-$OPSYS])
@@ -3223,6 +3278,11 @@ AS_IF([test ${enable_jit} != no],
     arm)
       # ARM JIT doesn't support native stack due to its 16-byte alignment
       # requirement.
+      enable_native_stack=no
+      ;;
+    ppc)
+      # PPC JIT keeps the Erlang stack apart from the native stack, like the
+      # ARM JIT.
       enable_native_stack=no
       ;;
     *)

@@ -19,6 +19,7 @@ Project Organization
       * **support**      - Support classes and functions
       * **arm**          - ARM specific API, designed to be common for both AArch32 and AArch64
       * **a64**          - AArch64 specific API, used only by AArch64 backends
+      * **ppc64**        - PPC64 specific API, used only by the PPC64 backend (big and little endian)
       * **x86**          - X86 specific API, used only by X86 and X64 backends
       * **ujit**         - Universal JIT API
     * **asmjit-testing** - Unit tests, integration tests, and benchmarks (don't embed in your project)
