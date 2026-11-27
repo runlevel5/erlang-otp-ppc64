@@ -3,7 +3,7 @@
 %%
 %% SPDX-License-Identifier: Apache-2.0
 %%
-%% Copyright Ericsson AB 2005-2025. All Rights Reserved.
+%% Copyright Ericsson AB 2005-2026. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -33,7 +33,8 @@
 	 timestamp/0, timeout/2,
 	 html_encode/1,
 	 maybe_add_brackets/2,
-	 connection_tokens/1
+	 connection_tokens/1,
+	 strip_ctl_chars/1
 	]).
 
 
@@ -42,6 +43,31 @@
 %%%=========================================================================
 to_upper(Str) ->
     string:uppercase(Str).
+
+%% Replace each CR, LF and NUL in a header field name or value with SP,
+%% as allowed by RFC 9110 5.5, so the field cannot end early and inject
+%% header lines or a second message. Replacing rather than deleting keeps
+%% token boundaries ("a\r\nb" must not become "ab"). Accepts iodata and
+%% preserves its shape.
+strip_ctl_chars(Value) when is_binary(Value) ->
+    << <<(replace_ctl_char(Octet))>> || <<Octet>> <= Value >>;
+strip_ctl_chars(Value) when is_list(Value) ->
+    strip_ctl_chars_list(Value).
+
+strip_ctl_chars_list([]) ->
+    [];
+strip_ctl_chars_list([Octet | Rest]) when is_integer(Octet) ->
+    [replace_ctl_char(Octet) | strip_ctl_chars_list(Rest)];
+strip_ctl_chars_list([Nested | Rest]) ->
+    [strip_ctl_chars(Nested) | strip_ctl_chars_list(Rest)];
+strip_ctl_chars_list(Tail) ->
+    %% Improper list, e.g. an iolist with a binary tail
+    strip_ctl_chars(Tail).
+
+replace_ctl_char($\r)   -> $\s;
+replace_ctl_char($\n)   -> $\s;
+replace_ctl_char(0)     -> $\s;
+replace_ctl_char(Octet) -> Octet.
 
 to_lower(Str) ->
     string:lowercase(Str).

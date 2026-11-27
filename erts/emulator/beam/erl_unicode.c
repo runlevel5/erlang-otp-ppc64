@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * Copyright Ericsson AB 2008-2025. All Rights Reserved.
+ * Copyright Ericsson AB 2008-2026. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1494,6 +1494,7 @@ static void cleanup_norm(Eterm **hpp, Uint16 *savepoints, int numpoints, Eterm *
 	    i += res;
 	}
     }
+    *hpp = hp;
     *retp = ret;
 }
     
@@ -2092,6 +2093,12 @@ char *erts_convert_filename_to_encoding(Eterm name, char *statbuf, size_t statbu
 
         bytes = erts_get_aligned_binary_bytes(name, &size, &temp_alloc);
         if (bytes == NULL) {
+            return NULL;
+        }
+
+        /* Don't allow null in the middle of filenames */
+        if (sys_memchr(bytes, 0, size) != NULL) {
+            erts_free_aligned_binary_bytes(temp_alloc);
             return NULL;
         }
 

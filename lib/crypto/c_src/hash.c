@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  *
- * Copyright Ericsson AB 2010-2025. All Rights Reserved.
+ * Copyright Ericsson AB 2010-2026. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,6 +32,14 @@
 #endif
 #ifdef HAVE_RIPEMD160
 #  define RIPEMD160_CTX_LEN (sizeof(RIPEMD160_CTX))
+#endif
+
+/***************************
+ Mandatory prototypes
+***************************/
+
+#if defined(HAVE_SHAKE128) || defined(HAVE_SHAKE256)
+ERL_NIF_TERM hash_final_xof(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]);
 #endif
 
 #if OPENSSL_VERSION_NUMBER >= PACKED_OPENSSL_VERSION_PLAIN(1,0,0)
@@ -558,8 +566,8 @@ ERL_NIF_TERM hash_final_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 #endif  /* OPENSSL_VERSION_NUMBER < 1.0 */
 
 #if defined(HAVE_SHAKE128) || defined(HAVE_SHAKE256)
-ERL_NIF_TERM hash_final_xof_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
-{/* (Context) */
+ERL_NIF_TERM hash_final_xof(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{ /* (Context, Length) */
     struct evp_md_ctx   *ctx;
     EVP_MD_CTX          *new_ctx;
     ERL_NIF_TERM        ret;
@@ -586,6 +594,23 @@ ERL_NIF_TERM hash_final_xof_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM arg
     if (new_ctx)
         EVP_MD_CTX_free(new_ctx);
     return ret;
+}
+ERL_NIF_TERM hash_final_xof_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{ /* (Context, Length) */
+    unsigned int len;
+
+    ASSERT(argc == 2);
+    if (!enif_get_uint(env, argv[1], &len))
+        return EXCP_BADARG_N(env, 1, "Bad len");
+    ASSERT(0 < len);
+
+    if ((len>>3) > MAX_BYTES_TO_NIF)
+    {
+        return enif_schedule_nif(env, "hash_final_xof",
+                                 ERL_NIF_DIRTY_JOB_CPU_BOUND,
+                                 hash_final_xof, argc, argv);
+    }
+    return hash_final_xof(env, argc, argv);
 }
 #else
 ERL_NIF_TERM hash_final_xof_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])

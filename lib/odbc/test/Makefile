@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-# Copyright Ericsson AB 1999-2025. All Rights Reserved.
+# Copyright Ericsson AB 1999-2026. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@ MODULES= \
 	odbc_start_SUITE \
 	odbc_connect_SUITE \
 	odbc_query_SUITE \
+        odbc_param_limit_SUITE \
 	odbc_data_type_SUITE \
 	odbc_test_lib \
 	oracle \

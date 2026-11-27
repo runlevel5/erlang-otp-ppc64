@@ -23,6 +23,18 @@ limitations under the License.
 
 This document describes the changes made to the odbc application.
 
+## ODBC 2.17.3
+
+### Fixed Bugs and Malfunctions
+
+- Validate string parameter values before they are sent to the odbcserver
+  port program, and harden the port program against malformed or oversized
+  input, so bad input fails early with a clear error instead of corrupting the port program heap.
+
+  Own Id: OTP-20537 Aux Id: [PR-12117]
+
+[PR-12117]: https://github.com/erlang/otp/pull/12117
+
 ## ODBC 2.17.2
 
 ### Fixed Bugs and Malfunctions
@@ -67,6 +79,18 @@ This document describes the changes made to the odbc application.
   Own Id: OTP-20066 Aux Id: [PR-10839]
 
 [PR-10839]: https://github.com/erlang/otp/pull/10839
+
+## ODBC 2.16.1.2
+
+### Fixed Bugs and Malfunctions
+
+- Validate string parameter values before they are sent to the odbcserver
+  port program, and harden the port program against malformed or oversized
+  input, so bad input fails early with a clear error instead of corrupting the port program heap.
+
+  Own Id: OTP-20537 Aux Id: [PR-12117]
+
+[PR-12117]: https://github.com/erlang/otp/pull/12117
 
 ## ODBC 2.16.1.1
 
@@ -120,6 +144,18 @@ This document describes the changes made to the odbc application.
 [PR-8734]: https://github.com/erlang/otp/pull/8734
 [PR-9441]: https://github.com/erlang/otp/pull/9441
 [PR-9670]: https://github.com/erlang/otp/pull/9670
+
+## ODBC 2.15.0.2
+
+### Fixed Bugs and Malfunctions
+
+- Validate string parameter values before they are sent to the odbcserver
+  port program, and harden the port program against malformed or oversized
+  input, so bad input fails early with a clear error instead of corrupting the port program heap.
+
+  Own Id: OTP-20537 Aux Id: [PR-12117]
+
+[PR-12117]: https://github.com/erlang/otp/pull/12117
 
 ## ODBC 2.15.0.1
 
