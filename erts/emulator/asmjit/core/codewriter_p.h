@@ -121,9 +121,9 @@ public:
     ASMJIT_ASSERT(size <= sizeof(T));
 
     U v = U(value);
-    for (uint32_t i = 0; i < size; i++) {
-      _cursor[i] = uint8_t(v >> (sizeof(T) - 8));
-      v <<= 8;
+    for (size_t i = size; i != 0; i--) {
+      _cursor[i - 1] = uint8_t(v & 0xFFu);
+      v >>= 8;
     }
     _cursor += size;
   }

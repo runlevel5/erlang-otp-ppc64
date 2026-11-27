@@ -4633,7 +4633,7 @@ typedef struct {
     {
         /* data */
 #ifdef BEAMASM
-        char call_nif[64];
+        char call_nif[BEAM_ASM_CALL_NIF_SIZE];
 #else
         BeamInstr call_nif[4];
 #endif
